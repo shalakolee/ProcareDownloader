@@ -1,65 +1,154 @@
 # Procare Photo Downloader
 
-A WPF (.NET 8) desktop app to download all your photos from Procare Connect (schools.procareconnect.com).
+A Windows desktop app for browsing and downloading full-resolution photos from Procare Connect at `schools.procareconnect.com`.
 
-## How It Works
+Built with WPF on .NET 8.
 
-1. **Login** — An embedded browser (WebView2) loads the real Procare login page. Log in normally.
-2. **Token capture** — The app intercepts the Bearer token from outgoing API requests. No credentials are stored.
-3. **Student select** — If you have multiple children, pick one.
-4. **Gallery** — All photos load as thumbnails. Click to select/deselect. Use "Select All" for bulk select.
-5. **Download** — Choose a folder. Photos download at full resolution, named `YYYY-MM-DD_{id}.jpg`.
+## What It Does
 
-## Prerequisites
+- Uses the real Procare login flow in an embedded WebView2 browser
+- Detects the authenticated API session without storing your password
+- Lets you choose a student when multiple children are available
+- Loads a photo gallery grouped by year and month
+- Supports collapsible month sections and month-level selection
+- Downloads full-resolution originals, not thumbnail images
+- Tracks photos that were already saved and marks them in the gallery
+- Adds a `Download Unsaved` action so repeat runs only fetch new photos
+- Lets you choose how files are organized on disk from a settings screen
+- Lets you import an existing download folder to backfill download history
+- Lets you clear the current session and sign in with a different account
 
-- **Windows 10/11**
-- **.NET 8 SDK** — https://dotnet.microsoft.com/download
-- **WebView2 Runtime** — Usually pre-installed on Windows 11. If not:
-  https://developer.microsoft.com/microsoft-edge/webview2/
+## Current Features
 
-## Build & Run
+### Gallery
 
-```bash
-git clone <this-repo>
-cd ProcareDownloader
+- Student selection screen after login
+- Photo thumbnails with lazy loading
+- Month-by-month grouping such as `April 2026`
+- Collapsible month sections
+- `Select All` across the gallery
+- `Select Month` per month group
+- Saved badge for files already downloaded
+
+### Downloading
+
+- Full-resolution photo downloads
+- Parallel downloads with progress bar and per-file status
+- Download selected photos
+- Download only unsaved photos
+- Skip previously downloaded photos safely
+
+### Save Layouts
+
+Choose the layout from the in-app settings screen:
+
+- `Single Folder`
+- `Year / Month`
+- `Student / Year`
+- `Student / Year / Month`
+
+Examples:
+
+- `ChosenFolder\\2026\\04\\2026-04-10_12345.jpg`
+- `ChosenFolder\\Nathan Lee\\2026\\04\\2026-04-10_12345.jpg`
+
+### Tracking and Logs
+
+- Download history is stored locally so the app can identify previously saved photos
+- Existing folders can be imported to mark older downloads as already saved
+- Application logs are written locally for troubleshooting
+
+Default local data paths:
+
+- Logs: `%LOCALAPPDATA%\\ProcareDownloader\\logs\\app.log`
+- Download history: `%LOCALAPPDATA%\\ProcareDownloader\\download-history.json`
+- Settings: `%LOCALAPPDATA%\\ProcareDownloader\\settings.json`
+- WebView session data: `%LOCALAPPDATA%\\ProcareDownloader\\WebView2Data`
+
+## Requirements
+
+- Windows 10 or Windows 11
+- .NET 8 SDK
+- Microsoft Edge WebView2 Runtime
+
+WebView2 is usually already installed on modern Windows systems. If not, install it from:
+
+`https://developer.microsoft.com/microsoft-edge/webview2/`
+
+## Build and Run
+
+```powershell
+dotnet build
 dotnet run
 ```
 
-Or open `ProcareDownloader.csproj` in Visual Studio 2022+ and hit F5.
+To run the built executable directly:
 
-## Project Structure
-
+```powershell
+.\\bin\\Debug\\net8.0-windows\\ProcareDownloader.exe
 ```
+
+You can also open `ProcareDownloader.csproj` in Visual Studio 2022 or later and run it with F5.
+
+## Project Layout
+
+```text
 ProcareDownloader/
+├── Assets/
+│   └── AppIcon.ico
+├── Converters/
+│   └── Converters.cs
 ├── Models/
-│   └── Models.cs              # Student, Photo, TokenInfo
+│   └── Models.cs
 ├── Services/
-│   ├── ProcareApiService.cs   # All HTTP calls to Procare API
-│   ├── TokenInterceptorService.cs  # Captures Bearer token from WebView2
-│   └── DownloadService.cs     # Parallel file download manager
+│   ├── AppLog.cs
+│   ├── DownloadHistoryService.cs
+│   ├── DownloadService.cs
+│   ├── ProcareApiService.cs
+│   ├── SettingsService.cs
+│   └── TokenInterceptorService.cs
 ├── ViewModels/
-│   └── MainViewModel.cs       # MVVM state machine + commands
+│   └── MainViewModel.cs
 ├── Views/
-│   ├── MainWindow.xaml        # Dark gallery UI
-│   └── MainWindow.xaml.cs     # WebView2 init, click handlers
-└── Converters/
-    └── Converters.cs          # State → Visibility converters
+│   ├── MainWindow.xaml
+│   └── MainWindow.xaml.cs
+├── App.xaml
+└── ProcareDownloader.csproj
 ```
+
+## How Authentication Works
+
+1. The app opens the real Procare login page in WebView2.
+2. After you sign in, the app watches authenticated browser traffic.
+3. It captures the bearer token and organization context from the active session.
+4. It uses that session to load students, activities, and photo originals.
+
+The app does not ask for or save your Procare password.
 
 ## Troubleshooting
 
-**"WebView2 init failed"** — Install the WebView2 Runtime from the link above.
+### WebView2 initialization failure
 
-**Photos not loading / API errors** — Procare may have updated their API. Open DevTools in the
-embedded browser (right-click → Inspect) to check the actual API endpoints and update
-`ProcareApiService.cs` accordingly. Look for requests to `api.procareconnect.com`.
+Install or repair the WebView2 Runtime.
 
-**Token not captured** — Try navigating to a page that shows photos in the embedded browser.
-The interceptor fires when an API call with `Authorization: Bearer ...` goes out.
+### Student or photo loading failures
+
+Check:
+
+- `%LOCALAPPDATA%\\ProcareDownloader\\logs\\app.log`
+- your current Procare session in the embedded browser
+- whether Procare changed API responses or page behavior
+
+### Previously saved photos are not marked
+
+Open Settings and use `Import Existing Downloads Folder` on the folder tree that already contains downloaded images.
+
+### Wrong account is still logged in
+
+Open Settings and use `Log Out And Change Account`.
 
 ## Notes
 
-- Photo files are skipped if they already exist in the destination folder (safe to re-run).
-- Downloads are parallelized with a cap of 4 concurrent connections.
-- WebView2 session is persisted in `%LocalAppData%\ProcareDownloader\WebView2Data`,
-  so you stay logged in between runs.
+- The app is intended for personal photo export from your own Procare account.
+- Downloaded files are named with the photo date and photo id to make re-runs stable.
+- The app is conservative about duplicates and will skip files already known in history.

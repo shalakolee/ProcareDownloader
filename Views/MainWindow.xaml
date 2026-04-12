@@ -5,7 +5,7 @@
         xmlns:conv="clr-namespace:ProcareDownloader.Converters"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="Procare Photo Downloader"
-        Icon="Assets/AppIcon.ico"
+        Icon="/Assets/AppIcon.ico"
         Width="1100" Height="760"
         MinWidth="860" MinHeight="620"
         Background="#0D1B2A"
