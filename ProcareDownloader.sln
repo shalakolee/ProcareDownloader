@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.2.11408.102 d18.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProcareDownloader", "ProcareDownloader.csproj", "{FEE828AF-441C-5ADF-5513-D4548118C025}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FEE828AF-441C-5ADF-5513-D4548118C025}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEE828AF-441C-5ADF-5513-D4548118C025}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEE828AF-441C-5ADF-5513-D4548118C025}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEE828AF-441C-5ADF-5513-D4548118C025}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5B0B06C3-7EEB-4F14-9C02-8064EDFB0B89}
+	EndGlobalSection
+EndGlobal

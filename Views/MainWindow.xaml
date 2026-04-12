@@ -1,0 +1,443 @@
+<Window x:Class="ProcareDownloader.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:ProcareDownloader.ViewModels"
+        xmlns:conv="clr-namespace:ProcareDownloader.Converters"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Procare Photo Downloader"
+        Icon="Assets/AppIcon.ico"
+        Width="1100" Height="760"
+        MinWidth="860" MinHeight="620"
+        Background="#0D1B2A"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <conv:StateToVisibilityConverter x:Key="LoginVis" TargetState="Login"/>
+        <conv:StateToVisibilityConverter x:Key="StudentVis" TargetState="SelectStudent"/>
+        <conv:StateToVisibilityConverter x:Key="GalleryVis" TargetState="Gallery"/>
+        <conv:MultiStateVisibilityConverter x:Key="GalleryOrDownloadVis" States="Gallery,Downloading,Done"/>
+        <conv:MultiStateVisibilityConverter x:Key="LoadingVis" States="LoadingStudents,LoadingPhotos"/>
+        <conv:MultiStateVisibilityConverter x:Key="DownloadingVis" States="Downloading"/>
+        <conv:BoolToVisibilityConverter x:Key="BoolVis"/>
+        <conv:BoolToVisibilityConverter x:Key="InvBoolVis" Invert="True"/>
+        <conv:SelectedBorderConverter x:Key="SelBorder"/>
+
+        <Style x:Key="SettingsListBox" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#EFF6F5"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
+        <Style x:Key="SettingsListBoxItem" TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root"
+                                Background="#142233"
+                                BorderBrush="#1A3A5C"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12,10">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#00C2A8"/>
+                                <Setter TargetName="Root" Property="Background" Value="#173149"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#00C2A8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="#0A1520" BorderThickness="0,0,0,1" BorderBrush="#1A3A5C">
+            <Grid Margin="20,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="32" Height="32" Background="#00C2A8" CornerRadius="8" Margin="0,0,12,0">
+                        <TextBlock Text="📷" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="Procare" Foreground="#EFF6F5" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text=" Photo Downloader" Foreground="#8BA3B8" FontSize="16" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Settings"
+                            Style="{StaticResource GhostButton}"
+                            Margin="0,0,8,0"
+                            Command="{Binding OpenSettingsCommand}"/>
+                    <Button Content="← Change Student"
+                            Style="{StaticResource GhostButton}"
+                            Visibility="{Binding State, Converter={StaticResource GalleryOrDownloadVis}}"
+                            Command="{Binding BackToStudentsCommand}"
+                            IsEnabled="{Binding State, Converter={StaticResource GalleryVis}}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid Visibility="{Binding State, Converter={StaticResource LoginVis}}">
+                <wv2:WebView2 x:Name="LoginWebView"/>
+                <Border Background="#0D1B2A" Opacity="0.4"
+                        Visibility="{Binding IsIndeterminate, Converter={StaticResource BoolVis}}"/>
+            </Grid>
+
+            <StackPanel Visibility="{Binding State, Converter={StaticResource LoadingVis}}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ProgressBar IsIndeterminate="True" Width="220" Height="4"
+                             Foreground="#00C2A8" Background="#1A3A5C" BorderThickness="0"/>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#8BA3B8"
+                           FontSize="14" Margin="0,16,0,0" HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Visibility="{Binding State, Converter={StaticResource StudentVis}}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Width="420">
+                <TextBlock Text="Select a Student" Foreground="#EFF6F5" FontSize="24"
+                           FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                <TextBlock Text="Choose whose photos you'd like to download."
+                           Foreground="#8BA3B8" FontSize="13" HorizontalAlignment="Center"
+                           Margin="0,0,0,14"/>
+                <TextBlock Text="{Binding SubStatus}" Foreground="#6E8AA3" FontSize="12"
+                           HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                <ItemsControl ItemsSource="{Binding Students}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Margin="0,6" Padding="20,16"
+                                    Background="#142233" BorderThickness="1"
+                                    BorderBrush="#1A3A5C" Cursor="Hand"
+                                    Command="{Binding DataContext.SelectStudentCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="40" Height="40" CornerRadius="20"
+                                                        Background="#1A3A5C" Margin="0,0,14,0">
+                                                    <TextBlock Text="👤" FontSize="20"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"/>
+                                                </Border>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding FullName}" Foreground="#EFF6F5"
+                                                               FontSize="15" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="Tap to view photos"
+                                                               Foreground="#8BA3B8" FontSize="12"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#1E3D5A"/>
+                                                <Setter Property="BorderBrush" Value="#00C2A8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <Grid Visibility="{Binding State, Converter={StaticResource GalleryOrDownloadVis}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="#0A1520" Padding="16,10"
+                        BorderThickness="0,0,0,1" BorderBrush="#1A3A5C">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding SelectedStudent.FullName}" Foreground="#EFF6F5"
+                                       FontSize="15" FontWeight="Bold"/>
+                            <TextBlock Foreground="#8BA3B8" FontSize="13" Margin="10,0,0,0">
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} photos · {1} selected · {2} saved">
+                                        <Binding Path="TotalCount"/>
+                                        <Binding Path="SelectedCount"/>
+                                        <Binding Path="DownloadedCount"/>
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Style="{StaticResource GhostButton}"
+                                Command="{Binding ToggleSelectAllCommand}"
+                                IsEnabled="{Binding State, Converter={StaticResource GalleryVis}}"
+                                Content="{Binding SelectAllButtonText}"/>
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Background="#0D1B2A" Padding="12">
+                    <ItemsControl x:Name="PhotoGrid" ItemsSource="{Binding MonthGroups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:PhotoMonthGroupViewModel}">
+                                <Expander IsExpanded="{Binding IsExpanded}" Margin="0,0,0,16"
+                                          Background="#101D2D" Foreground="#EFF6F5">
+                                    <Expander.Header>
+                                        <Grid MinHeight="46">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Label}" FontSize="16" FontWeight="Bold" Foreground="#EFF6F5"/>
+                                                <TextBlock Foreground="#8BA3B8" FontSize="12" Margin="10,2,0,0">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding StringFormat="{}{0} photos · {1} selected · {2} saved">
+                                                            <Binding Path="TotalCount"/>
+                                                            <Binding Path="SelectedCount"/>
+                                                            <Binding Path="DownloadedCount"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <Button Grid.Column="1"
+                                                    Style="{StaticResource GhostButton}"
+                                                    Margin="12,0,0,0"
+                                                    Command="{Binding DataContext.ToggleMonthSelectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Content="{Binding ToggleLabel}"/>
+                                        </Grid>
+                                    </Expander.Header>
+
+                                    <Border Background="#0D1B2A" Padding="10,12,10,4">
+                                        <ItemsControl ItemsSource="{Binding Photos}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:PhotoViewModel}">
+                                                    <Border Width="160" Height="160" Margin="4"
+                                                            CornerRadius="6" Cursor="Hand"
+                                                            BorderThickness="2"
+                                                            BorderBrush="{Binding IsSelected, Converter={StaticResource SelBorder}}"
+                                                            Background="#142233"
+                                                            MouseLeftButtonUp="Photo_Click">
+                                                        <Grid ClipToBounds="True">
+                                                            <Image Source="{Binding Thumbnail}"
+                                                                   Stretch="UniformToFill"
+                                                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                                                            <Border Background="#142233"
+                                                                    Visibility="{Binding IsLoaded, Converter={StaticResource InvBoolVis}}">
+                                                                <TextBlock Text="⏳" FontSize="28"
+                                                                           HorizontalAlignment="Center"
+                                                                           VerticalAlignment="Center"
+                                                                           Opacity="0.4"/>
+                                                            </Border>
+
+                                                            <Border VerticalAlignment="Bottom"
+                                                                    Background="#CC0A1520"
+                                                                    Padding="6,4">
+                                                                <TextBlock Text="{Binding DateLabel}" Foreground="#8BA3B8" FontSize="10"/>
+                                                            </Border>
+
+                                                            <Border Width="24" Height="24" CornerRadius="12"
+                                                                    Background="#00C2A8"
+                                                                    HorizontalAlignment="Right"
+                                                                    VerticalAlignment="Top"
+                                                                    Margin="0,6,6,0"
+                                                                    Visibility="{Binding IsSelected, Converter={StaticResource BoolVis}}">
+                                                                <TextBlock Text="✓" Foreground="#0D1B2A"
+                                                                           FontWeight="Bold" FontSize="13"
+                                                                           HorizontalAlignment="Center"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Border>
+
+                                                            <Border HorizontalAlignment="Left"
+                                                                    VerticalAlignment="Top"
+                                                                    Margin="6"
+                                                                    Background="#CC00C2A8"
+                                                                    CornerRadius="4"
+                                                                    Padding="6,2"
+                                                                    Visibility="{Binding IsDownloaded, Converter={StaticResource BoolVis}}">
+                                                                <TextBlock Text="Saved" Foreground="#0D1B2A"
+                                                                           FontWeight="Bold" FontSize="10"/>
+                                                            </Border>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </Expander>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <Border Grid.Row="2" Background="#0A1520" Padding="16,12"
+                        BorderThickness="0,1,0,0" BorderBrush="#1A3A5C">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <ProgressBar Value="{Binding ProgressValue}" Maximum="100"
+                                         Height="6" Foreground="#00C2A8" Background="#1A3A5C"
+                                         BorderThickness="0" Margin="0,0,16,6"
+                                         Visibility="{Binding State, Converter={StaticResource DownloadingVis}}"/>
+                            <TextBlock Text="{Binding ProgressText}" Foreground="#EFF6F5" FontSize="11"
+                                       Visibility="{Binding State, Converter={StaticResource DownloadingVis}}"
+                                       Margin="0,0,0,2"/>
+                            <TextBlock Text="{Binding SubStatus}" Foreground="#8BA3B8" FontSize="11"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <Button Grid.Column="1" Content="Cancel"
+                                Style="{StaticResource GhostButton}"
+                                Margin="0,0,8,0"
+                                Command="{Binding CancelOperationCommand}"
+                                Visibility="{Binding State, Converter={StaticResource DownloadingVis}}"/>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="{Binding UnsavedDownloadButtonText}"
+                                    AutomationProperties.Name="Download Unsaved Photos"
+                                    Style="{StaticResource GhostButton}"
+                                    Margin="0,0,8,0"
+                                    x:Name="DownloadUnsavedBtn"
+                                    IsEnabled="{Binding State, Converter={StaticResource GalleryVis}}"
+                                    Click="DownloadUnsavedBtn_Click"/>
+                            <Button Content="⬇ Download Selected"
+                                    Style="{StaticResource TealButton}"
+                                    x:Name="DownloadBtn"
+                                    IsEnabled="{Binding State, Converter={StaticResource GalleryVis}}"
+                                    Click="DownloadBtn_Click"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="2" Background="#080F18" Padding="16,6"
+                BorderThickness="0,1,0,0" BorderBrush="#0F2233">
+            <TextBlock Text="{Binding StatusMessage}" Foreground="#8BA3B8" FontSize="11"/>
+        </Border>
+
+        <Grid Grid.RowSpan="3" Panel.ZIndex="10"
+              Background="#88060B12"
+              Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolVis}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="380"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="1" Background="#0A1520" BorderBrush="#1A3A5C" BorderThickness="1,0,0,0">
+                <Grid Margin="20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,18">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Settings" Foreground="#EFF6F5" FontSize="20" FontWeight="Bold"/>
+                            <TextBlock Text="Save layout, account session, and download tracking." Foreground="#8BA3B8" FontSize="12" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Close" Style="{StaticResource GhostButton}"
+                                Command="{Binding CloseSettingsCommand}"/>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <Border Background="#101D2D" CornerRadius="8" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="Save Layout" Foreground="#EFF6F5" FontSize="15" FontWeight="Bold"/>
+                                    <TextBlock Text="Choose the folder structure used when you download selected photos." Foreground="#8BA3B8" FontSize="12" Margin="0,4,0,12"/>
+                                    <TextBlock Foreground="#8BA3B8" FontSize="12" Margin="0,0,0,12">
+                                        <Run Text="Preview: "/>
+                                        <Run Text="{Binding DownloadLayoutPreview, Mode=OneWay}" Foreground="#EFF6F5"/>
+                                    </TextBlock>
+                                    <ListBox ItemsSource="{Binding DownloadLayoutOptions}"
+                                             SelectedItem="{Binding SelectedDownloadLayout}"
+                                             Style="{StaticResource SettingsListBox}"
+                                             ItemContainerStyle="{StaticResource SettingsListBoxItem}">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Label}" Foreground="#EFF6F5" FontWeight="SemiBold" FontSize="13"/>
+                                                    <TextBlock Text="{Binding Description}" Foreground="#8BA3B8" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="#101D2D" CornerRadius="8" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="Download Tracking" Foreground="#EFF6F5" FontSize="15" FontWeight="Bold"/>
+                                    <TextBlock Foreground="#8BA3B8" FontSize="12" Margin="0,6,0,0">
+                                        <Run Text="Tracked downloads: "/>
+                                        <Run Text="{Binding DownloadHistoryCount, Mode=OneWay}" Foreground="#EFF6F5"/>
+                                    </TextBlock>
+                                    <TextBlock Foreground="#8BA3B8" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap">
+                                        Photos you already saved are marked with a `Saved` badge in the gallery and will be skipped on future downloads.
+                                    </TextBlock>
+                                    <Button Content="Import Existing Downloads Folder"
+                                            Style="{StaticResource GhostButton}"
+                                            Margin="0,12,0,0"
+                                            Click="ImportDownloadsBtn_Click"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="#101D2D" CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="Account" Foreground="#EFF6F5" FontSize="15" FontWeight="Bold"/>
+                                    <TextBlock Text="Clear the current Procare session and sign in with a different account." Foreground="#8BA3B8" FontSize="12" Margin="0,4,0,12" TextWrapping="Wrap"/>
+                                    <Button Content="Log Out And Change Account"
+                                            Style="{StaticResource TealButton}"
+                                            Click="LogoutBtn_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <TextBlock Grid.Row="2" Text="Settings are saved automatically." Foreground="#6E8AA3" FontSize="11" Margin="0,14,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
