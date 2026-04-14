@@ -227,7 +227,22 @@ public sealed class DownloadHistoryService
 
     private static bool RecordExists(DownloadHistoryRecord record)
     {
-        return string.IsNullOrWhiteSpace(record.DestinationPath) || File.Exists(record.DestinationPath);
+        if (string.IsNullOrWhiteSpace(record.DestinationPath))
+        {
+            return true;
+        }
+
+        if (Uri.TryCreate(record.DestinationPath, UriKind.Absolute, out var uri) && uri.IsFile == false)
+        {
+            return true;
+        }
+
+        if (!Path.IsPathRooted(record.DestinationPath))
+        {
+            return true;
+        }
+
+        return File.Exists(record.DestinationPath);
     }
 
     private static bool PathsEqual(string left, string right)

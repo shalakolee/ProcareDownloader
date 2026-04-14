@@ -18,4 +18,18 @@
   <ItemGroup>
     <Resource Include="Assets\AppIcon.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="ProcareDownloader.Core\ProcareDownloader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="ProcareDownloader.Core\**\*.cs" />
+    <Compile Remove="ProcareDownloader.Mobile\**\*.cs" />
+    <EmbeddedResource Remove="ProcareDownloader.Core\**\*" />
+    <EmbeddedResource Remove="ProcareDownloader.Mobile\**\*" />
+    <None Remove="ProcareDownloader.Core\**\*" />
+    <MauiXaml Remove="ProcareDownloader.Mobile\**\*.xaml" />
+    <None Remove="ProcareDownloader.Mobile\**\*" />
+    <Page Remove="ProcareDownloader.Mobile\**\*.xaml" />
+    <ApplicationDefinition Remove="ProcareDownloader.Mobile\**\App.xaml" />
+  </ItemGroup>
 </Project>
