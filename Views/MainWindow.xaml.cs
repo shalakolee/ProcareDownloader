@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -32,9 +33,11 @@ public partial class MainWindow : Window
         _api = new ProcareApiService();
         var history = new DownloadHistoryService();
         var settings = new SettingsService();
+        var imageCache = new DesktopImageCacheService(_api);
+        var photoCache = new DesktopPhotoMetadataCacheService();
         var downloader = new DownloadService(_api, history);
         _interceptor = new TokenInterceptorService();
-        _vm = new MainViewModel(_api, downloader, history, settings);
+        _vm = new MainViewModel(_api, downloader, imageCache, photoCache, history, settings);
         _tokenPollTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(2)
@@ -43,6 +46,7 @@ public partial class MainWindow : Window
 
         DataContext = _vm;
         Loaded += OnLoaded;
+        KeyDown += OnWindowKeyDown;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -225,12 +229,42 @@ public partial class MainWindow : Window
         await Dispatcher.InvokeAsync(async () => { await _vm.OnTokenCapturedAsync(token); });
     }
 
-    private void Photo_Click(object sender, MouseButtonEventArgs e)
+    private async void Photo_Click(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is PhotoViewModel photo)
         {
+            if (e.ClickCount > 1)
+            {
+                await _vm.OpenPhotoViewerAsync(photo);
+                return;
+            }
+
             photo.IsSelected = !photo.IsSelected;
             _vm.NotifySelectionChanged();
+        }
+    }
+
+    private async void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (!_vm.IsPhotoViewerOpen)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            _vm.ClosePhotoViewerCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Left)
+        {
+            await _vm.ShowPreviousPhotoAsync();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Right)
+        {
+            await _vm.ShowNextPhotoAsync();
+            e.Handled = true;
         }
     }
 
@@ -249,6 +283,38 @@ public partial class MainWindow : Window
         if (selectedPath != null)
         {
             await _vm.DownloadUnsavedAsync(selectedPath);
+        }
+    }
+
+    private void OpenLastSavedFolderBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_vm.LastSavedFolderPath))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Directory.Exists(_vm.LastSavedFolderPath))
+            {
+                _vm.StatusMessage = $"Folder not found: {_vm.LastSavedFolderPath}";
+                AppLog.Warn($"Requested open folder not found: {_vm.LastSavedFolderPath}");
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{_vm.LastSavedFolderPath}\"",
+                UseShellExecute = true
+            });
+            _vm.StatusMessage = $"Opened folder: {_vm.LastSavedFolderPath}";
+            AppLog.Info($"Opened saved folder in Explorer: {_vm.LastSavedFolderPath}");
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusMessage = $"Could not open folder: {ex.Message}";
+            AppLog.Error($"Failed to open folder {_vm.LastSavedFolderPath}.", ex);
         }
     }
 

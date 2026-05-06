@@ -1,21 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
     <AssemblyName>ProcareDownloader</AssemblyName>
     <RootNamespace>ProcareDownloader</RootNamespace>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="System.Text.Json" Version="10.0.7" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\AppIcon.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="ProcareDownloader.Core\ProcareDownloader.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="ProcareDownloader.Core\**\*.cs" />
+    <Compile Remove="ProcareDownloader.Mobile\**\*.cs" />
+    <Compile Remove="ProcareDownloader.Tests\**\*.cs" />
+    <EmbeddedResource Remove="ProcareDownloader.Core\**\*" />
+    <EmbeddedResource Remove="ProcareDownloader.Mobile\**\*" />
+    <EmbeddedResource Remove="ProcareDownloader.Tests\**\*" />
+    <None Remove="ProcareDownloader.Core\**\*" />
+    <None Remove="ProcareDownloader.Tests\**\*" />
+    <MauiXaml Remove="ProcareDownloader.Mobile\**\*.xaml" />
+    <None Remove="ProcareDownloader.Mobile\**\*" />
+    <Page Remove="ProcareDownloader.Mobile\**\*.xaml" />
+    <ApplicationDefinition Remove="ProcareDownloader.Mobile\**\App.xaml" />
   </ItemGroup>
 </Project>

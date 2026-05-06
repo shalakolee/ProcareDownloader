@@ -45,8 +45,8 @@ public class SelectedBorderConverter : IValueConverter
     {
         bool selected = value is bool b && b;
         return selected
-            ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(255, 0, 194, 168))
-            : new SolidColorBrush(Colors.Transparent);
+            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(13, 148, 136))
+            : new SolidColorBrush(System.Windows.Media.Color.FromRgb(226, 232, 240));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

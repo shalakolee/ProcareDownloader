@@ -1,89 +1,67 @@
-using System.IO;
-using System.Net.Http;
-using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Microsoft.Web.WebView2.Core;
 using ProcareDownloader.Models;
+using ProcareDownloader.Services;
 
-namespace ProcareDownloader.Services;
+namespace ProcareDownloader.Mobile.Services;
 
-public class ProcareApiService : IProcareMediaClient
+public class MobileProcareApiService : IProcareMediaClient
 {
     private const string ApiBaseUrl = "https://api-school.procareconnect.com/api/web";
     private const string ParentKidsPath = "/parent/kids";
     private const string ParentActivitiesPath = "/parent/activities";
     private const string ParentDailyActivitiesPath = "/parent/daily_activities";
+    private const string BrowserAuthKey = "__procareDownloaderAuth";
 
-    private readonly HttpClient _http;
-    private string _token = "";
-    private string _orgId = "";
-    private CoreWebView2? _webView;
+    private readonly ProcareApiClient _httpApi;
+    private Func<string, Task<string>>? _evaluateJavaScriptAsync;
 
-    public ProcareApiService()
+    public MobileProcareApiService()
     {
-        var handler = new HttpClientHandler
-        {
-            AllowAutoRedirect = true,
-            UseCookies = true
-        };
+        _httpApi = new ProcareApiClient();
+    }
 
-        _http = new HttpClient(handler);
-        _http.DefaultRequestHeaders.Add(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36");
-        _http.DefaultRequestHeaders.Add("Accept", "application/json");
-        _http.DefaultRequestHeaders.Add("Origin", "https://schools.procareconnect.com");
-        _http.DefaultRequestHeaders.Add("Referer", "https://schools.procareconnect.com/");
+    public bool HasToken => _httpApi.HasToken;
+
+    public void AttachBrowser(Func<string, Task<string>> evaluateJavaScriptAsync)
+    {
+        _evaluateJavaScriptAsync = evaluateJavaScriptAsync;
+        AppLog.Info("Attached MAUI WebView browser to mobile API service.");
     }
 
     public void SetCredentials(TokenInfo tokenInfo)
     {
-        _token = tokenInfo.AccessToken;
-        _orgId = tokenInfo.OrganizationId ?? "";
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
-
-        _http.DefaultRequestHeaders.Remove("X-Organization-Id");
-        if (!string.IsNullOrWhiteSpace(_orgId))
-        {
-            _http.DefaultRequestHeaders.TryAddWithoutValidation("X-Organization-Id", _orgId);
-        }
-
-        AppLog.Info($"Credentials updated. OrganizationId present: {!string.IsNullOrWhiteSpace(_orgId)}");
+        _httpApi.SetCredentials(tokenInfo);
     }
 
     public void ClearCredentials()
     {
-        _token = "";
-        _orgId = "";
-        _http.DefaultRequestHeaders.Authorization = null;
-        _http.DefaultRequestHeaders.Remove("X-Organization-Id");
-        AppLog.Info("Cleared API credentials.");
+        _httpApi.ClearCredentials();
     }
 
-    public void AttachBrowser(CoreWebView2 webView)
+    public async Task<List<Student>> GetStudentsAsync(CancellationToken ct = default)
     {
-        _webView = webView;
-        AppLog.Info("Attached WebView2 browser to API service.");
-    }
+        await TrySyncBrowserCredentialsAsync();
+        AppLog.Info($"Mobile GetStudentsAsync started. Browser attached: {_evaluateJavaScriptAsync != null}. Has token: {HasToken}.");
 
-    public bool HasToken => !string.IsNullOrEmpty(_token);
-
-    public async Task<List<Student>> GetStudentsAsync()
-    {
-        if (_webView != null)
+        if (_evaluateJavaScriptAsync != null)
         {
-            var browserStudents = await GetStudentsFromBrowserAsync();
+            var browserStudents = await GetStudentsFromBrowserAsync(ct);
             if (browserStudents.Count > 0)
             {
-                AppLog.Info($"Loaded {browserStudents.Count} students from browser session.");
+                AppLog.Info($"Loaded {browserStudents.Count} students from mobile browser session.");
                 return browserStudents;
             }
-
-            AppLog.Info("Browser student lookup returned no students. Falling back to direct API.");
         }
 
-        return await GetStudentsFromHttpAsync();
+        if (!HasToken)
+        {
+            AppLog.Info("Mobile GetStudentsAsync has no token and browser fetch returned no students.");
+            return [];
+        }
+
+        return await _httpApi.GetStudentsAsync(ct);
     }
 
     public async Task<List<Photo>> GetPhotosAsync(
@@ -91,7 +69,9 @@ public class ProcareApiService : IProcareMediaClient
         IProgress<(int loaded, int total)>? progress = null,
         CancellationToken ct = default)
     {
-        if (_webView != null)
+        await TrySyncBrowserCredentialsAsync();
+
+        if (_evaluateJavaScriptAsync != null)
         {
             var browserPhotos = new List<Photo>();
             var browserPage = 1;
@@ -109,100 +89,71 @@ public class ProcareApiService : IProcareMediaClient
                 browserTotal = pageResult.Total > 0 ? pageResult.Total : browserTotal;
                 progress?.Report((browserPhotos.Count, browserTotal > 0 ? browserTotal : browserPhotos.Count));
 
-                if (!pageResult.HasMore)
+                if (!pageResult.HasMore || pageResult.ItemCount == 0)
                 {
                     var filteredBrowserPhotos = FilterPhotosForStudent(studentId, browserPhotos);
-                    AppLog.Info($"Loaded {filteredBrowserPhotos.Count} photos for student {studentId} from browser session.");
                     progress?.Report((filteredBrowserPhotos.Count, filteredBrowserPhotos.Count));
+                    AppLog.Info(
+                        $"Loaded {filteredBrowserPhotos.Count} photos for student {studentId} from mobile browser session.");
                     return filteredBrowserPhotos;
-                }
-
-                if (pageResult.ItemCount == 0)
-                {
-                    break;
                 }
 
                 browserPage++;
             }
-
-            AppLog.Warn($"Browser activity lookup returned no photos for student {studentId}. Falling back to direct API.");
         }
 
-        var photos = new List<Photo>();
-        var page = 1;
-        var total = 0;
-
-        while (!ct.IsCancellationRequested)
+        if (!HasToken)
         {
-            var pageResult = await GetPhotosPageFromHttpAsync(studentId, page, ct);
-            if (!pageResult.Success)
-            {
-                break;
-            }
-
-            photos.AddRange(pageResult.Photos);
-            total = pageResult.Total > 0 ? pageResult.Total : total;
-            progress?.Report((photos.Count, total > 0 ? total : photos.Count));
-
-            if (!pageResult.HasMore)
-            {
-                break;
-            }
-
-            if (pageResult.ItemCount == 0)
-            {
-                break;
-            }
-
-            page++;
+            return [];
         }
 
-        var filteredPhotos = FilterPhotosForStudent(studentId, photos);
-        progress?.Report((filteredPhotos.Count, filteredPhotos.Count));
-        return filteredPhotos;
+        return await _httpApi.GetPhotosAsync(studentId, progress, ct);
     }
 
     public async Task DownloadPhotoAsync(Photo photo, string destinationPath, CancellationToken ct = default)
     {
-        var bytes = await _http.GetByteArrayAsync(photo.OriginalUrl, ct);
+        var bytes = await GetPhotoBytesAsync(photo, ct);
         await File.WriteAllBytesAsync(destinationPath, bytes, ct);
     }
 
-    public async Task<byte[]> GetThumbnailBytesAsync(string url, CancellationToken ct = default)
+    public async Task<byte[]> GetPhotoBytesAsync(Photo photo, CancellationToken ct = default)
     {
-        return await _http.GetByteArrayAsync(url, ct);
+        return await GetMediaBytesAsync(photo.OriginalUrl, ct);
     }
 
-    private async Task<List<Student>> GetStudentsFromBrowserAsync()
+    public async Task<byte[]> GetMediaBytesAsync(string mediaUrl, CancellationToken ct = default)
     {
-        var script = $$"""
+        await TrySyncBrowserCredentialsAsync();
+
+        if (HasToken)
+        {
+            return await _httpApi.GetThumbnailBytesAsync(mediaUrl, ct);
+        }
+
+        if (_evaluateJavaScriptAsync == null)
+        {
+            throw new InvalidOperationException("No active Procare session is available for downloading.");
+        }
+
+        var base64 = await ExecuteBrowserStringAsync($$"""
             (async function() {
-                if (window.req?.parentKids) {
-                    try {
-                        const result = await window.req.parentKids();
-                        if (result && (Array.isArray(result.kids) || Object.keys(result).length > 0)) {
-                            return JSON.stringify(result);
-                        }
-                    } catch (error) {
-                        console.warn('parentKids request failed in WebView', error);
-                    }
+                const authPayload = (() => {
+                    try { return JSON.parse(window['{{BrowserAuthKey}}'] || sessionStorage.getItem('{{BrowserAuthKey}}') || localStorage.getItem('{{BrowserAuthKey}}') || 'null'); } catch { return null; }
+                })();
+
+                const headers = { Accept: '*/*' };
+                if (authPayload?.accessToken) {
+                    headers['Authorization'] = 'Bearer ' + authPayload.accessToken;
                 }
 
-                const url = {{JsonSerializer.Serialize($"{ApiBaseUrl}{ParentKidsPath}")}};
-                const headers = {
-                    Accept: 'application/json',
-                    Authorization: 'Bearer ' + {{JsonSerializer.Serialize(_token)}}
-                };
-
-                const organizationId = {{JsonSerializer.Serialize(_orgId)}};
-                if (organizationId) {
-                    headers['X-Organization-Id'] = organizationId;
+                if (authPayload?.organizationId) {
+                    headers['X-Organization-Id'] = authPayload.organizationId;
                 }
 
-                const response = await fetch(url, {
+                const response = await fetch({{JsonSerializer.Serialize(mediaUrl)}}, {
                     method: 'GET',
-                    headers,
-                    credentials: 'include'
+                    credentials: 'include',
+                    headers
                 });
 
                 if (!response.ok) {
@@ -213,18 +164,155 @@ public class ProcareApiService : IProcareMediaClient
                     });
                 }
 
-                return JSON.stringify(await response.json());
-            })();
-            """;
+                const blob = await response.blob();
+                const dataUrl = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
 
-        var node = await ExecuteBrowserJsonAsync(script, "GetStudentsFromBrowserAsync");
-        if (IsEmptyObject(node))
+                return JSON.stringify({ dataUrl });
+            })();
+            """, "DownloadPhotoFromBrowserAsync");
+
+        var node = JsonNode.Parse(base64);
+        if (node?["error"]?.GetValue<bool?>() == true)
         {
-            AppLog.Info("Browser student fetch returned an empty object.");
+            var status = node["status"]?.GetValue<int?>() ?? 0;
+            var body = node["body"]?.GetValue<string>() ?? "";
+            throw new InvalidOperationException(
+                $"Browser download request failed with status {status}. {AppLog.Truncate(body, 300)}");
+        }
+
+        var dataUrl = node?["dataUrl"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(dataUrl) || !dataUrl.Contains(','))
+        {
+            throw new InvalidOperationException("Browser download did not return file data.");
+        }
+
+        return Convert.FromBase64String(dataUrl[(dataUrl.IndexOf(',') + 1)..]);
+    }
+
+    private async Task TrySyncBrowserCredentialsAsync()
+    {
+        if (_evaluateJavaScriptAsync == null || HasToken)
+        {
+            return;
+        }
+
+        try
+        {
+            var raw = await ExecuteBrowserStringAsync($$"""
+                (function() {
+                    const key = '{{BrowserAuthKey}}';
+                    const read = () => {
+                        try { return window[key]; } catch {}
+                        try { return sessionStorage.getItem(key); } catch {}
+                        try { return localStorage.getItem(key); } catch {}
+                        return null;
+                    };
+
+                    return read() || 'null';
+                })();
+                """, "TrySyncBrowserCredentialsAsync");
+
+            if (string.IsNullOrWhiteSpace(raw) || raw == "null")
+            {
+                return;
+            }
+
+            var cleaned = raw.Trim();
+            if (cleaned.StartsWith("\"") && cleaned.EndsWith("\""))
+            {
+                cleaned = cleaned[1..^1].Replace("\\\"", "\"").Replace("\\\\", "\\");
+            }
+
+            var node = JsonNode.Parse(cleaned);
+            var accessToken = node?["accessToken"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                SetCredentials(new TokenInfo
+                {
+                    AccessToken = accessToken,
+                    OrganizationId = node?["organizationId"]?.GetValue<string>()
+                });
+                AppLog.Info("Mobile browser credentials synced from WebView storage.");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Mobile browser credential sync failed: {ex.Message}");
+        }
+    }
+
+    private async Task<List<Student>> GetStudentsFromBrowserAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var node = await ExecuteBrowserJsonAsync($$"""
+            (async function() {
+                const authPayload = (() => {
+                    try {
+                        return JSON.parse(window['{{BrowserAuthKey}}'] || sessionStorage.getItem('{{BrowserAuthKey}}') || localStorage.getItem('{{BrowserAuthKey}}') || 'null');
+                    } catch {
+                        return null;
+                    }
+                })();
+
+                if (window.req?.parentKids) {
+                    try {
+                        const result = await window.req.parentKids();
+                        if (result && (Array.isArray(result.kids) || Object.keys(result).length > 0)) {
+                            return JSON.stringify(result);
+                        }
+                    } catch {}
+                }
+
+                const headers = { Accept: 'application/json' };
+                if (authPayload?.accessToken) {
+                    headers['Authorization'] = 'Bearer ' + authPayload.accessToken;
+                }
+
+                if (authPayload?.organizationId) {
+                    headers['X-Organization-Id'] = authPayload.organizationId;
+                }
+
+                try {
+                    const response = await fetch({{JsonSerializer.Serialize($"{ApiBaseUrl}{ParentKidsPath}")}}, {
+                        method: 'GET',
+                        headers,
+                        credentials: 'include'
+                    });
+
+                    if (!response.ok) {
+                        return JSON.stringify({
+                            error: true,
+                            status: response.status,
+                            body: await response.text()
+                        });
+                    }
+
+                    return JSON.stringify(await response.json());
+                } catch (error) {
+                    return JSON.stringify({
+                        error: true,
+                        status: 0,
+                        body: String(error)
+                    });
+                }
+            })();
+            """, "GetStudentsFromBrowserAsync");
+
+        if (node == null || IsEmptyObject(node) || node["error"]?.GetValue<bool?>() == true)
+        {
+            AppLog.Info($"Mobile browser student fetch returned no usable payload. Node type: {AppLog.DescribeNode(node)}");
             return [];
         }
 
-        return ParseStudents(node, "browser student fetch");
+        var students = ParseStudents(node, "mobile browser student fetch");
+        AppLog.Info($"Mobile browser student fetch parsed {students.Count} students.");
+        return students;
     }
 
     private async Task<(List<Photo> Photos, int Total, int ItemCount, bool HasMore, bool Success)> GetPhotosPageFromBrowserAsync(
@@ -234,16 +322,31 @@ public class ProcareApiService : IProcareMediaClient
     {
         ct.ThrowIfCancellationRequested();
 
-        var script = $$"""
+        var node = await ExecuteBrowserJsonAsync($$"""
             (async function() {
                 const studentId = {{JsonSerializer.Serialize(studentId)}};
                 const page = {{page}};
                 const perPage = 50;
-                const hasItems = (payload) => {
-                    if (!payload || typeof payload !== 'object') {
-                        return false;
-                    }
 
+                const authPayload = (() => {
+                    try {
+                        return JSON.parse(window['{{BrowserAuthKey}}'] || sessionStorage.getItem('{{BrowserAuthKey}}') || localStorage.getItem('{{BrowserAuthKey}}') || 'null');
+                    } catch {
+                        return null;
+                    }
+                })();
+
+                const headers = { Accept: 'application/json' };
+                if (authPayload?.accessToken) {
+                    headers['Authorization'] = 'Bearer ' + authPayload.accessToken;
+                }
+
+                if (authPayload?.organizationId) {
+                    headers['X-Organization-Id'] = authPayload.organizationId;
+                }
+
+                const hasItems = (payload) => {
+                    if (!payload || typeof payload !== 'object') return false;
                     return Array.isArray(payload.activities)
                         || Array.isArray(payload.daily_activities)
                         || Array.isArray(payload.photos)
@@ -251,7 +354,7 @@ public class ProcareApiService : IProcareMediaClient
                         || Array.isArray(payload.items);
                 };
 
-                const requestAttempts = [
+                const attempts = [
                     {
                         name: 'kidActivitiesV2',
                         fn: window.req?.kidActivitiesV2,
@@ -272,10 +375,8 @@ public class ProcareApiService : IProcareMediaClient
                     }
                 ];
 
-                for (const attempt of requestAttempts) {
-                    if (typeof attempt.fn !== 'function') {
-                        continue;
-                    }
+                for (const attempt of attempts) {
+                    if (typeof attempt.fn !== 'function') continue;
 
                     for (const params of attempt.params) {
                         try {
@@ -283,9 +384,7 @@ public class ProcareApiService : IProcareMediaClient
                             if (hasItems(result)) {
                                 return JSON.stringify(result);
                             }
-                        } catch (error) {
-                            console.warn('activity request failed in WebView', attempt.name, params, error);
-                        }
+                        } catch {}
                     }
                 }
 
@@ -297,16 +396,6 @@ public class ProcareApiService : IProcareMediaClient
                     {{JsonSerializer.Serialize(BuildParentActivityUrl(ParentDailyActivitiesPath, studentId, page, true))}},
                     {{JsonSerializer.Serialize(BuildParentActivityUrl(ParentDailyActivitiesPath, studentId, page, null))}}
                 ];
-
-                const headers = {
-                    Accept: 'application/json',
-                    Authorization: 'Bearer ' + {{JsonSerializer.Serialize(_token)}}
-                };
-
-                const organizationId = {{JsonSerializer.Serialize(_orgId)}};
-                if (organizationId) {
-                    headers['X-Organization-Id'] = organizationId;
-                }
 
                 for (const url of urls) {
                     try {
@@ -324,148 +413,27 @@ public class ProcareApiService : IProcareMediaClient
                         if (hasItems(payload)) {
                             return JSON.stringify(payload);
                         }
-                    } catch (error) {
-                        console.warn('activity fetch failed in WebView', url, error);
-                    }
-                }
-
-                if (window.req?.photos) {
-                    const attempts = [
-                        { kid_id: studentId, page, per_page: perPage },
-                        { kid_ids: [studentId], page, per_page: perPage }
-                    ];
-
-                    for (const params of attempts) {
-                        try {
-                            const result = await window.req.photos(params);
-                            if (result && (
-                                (Array.isArray(result.photos) && result.photos.length > 0) ||
-                                Object.keys(result).length > 0 && JSON.stringify(result) !== '{}'
-                            )) {
-                                return JSON.stringify(result);
-                            }
-                        } catch (error) {
-                            console.warn('photos request failed in WebView', params, error);
-                        }
-                    }
-                }
-
-                const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-                const clickPhotosTab = () => {
-                    const candidates = Array.from(document.querySelectorAll('a, button, [role="tab"], [role="button"]'));
-                    const tab = candidates.find(el => (el.textContent || '').toUpperCase().includes('PHOTOS/VIDEOS'));
-                    if (tab) {
-                        tab.click();
-                        return true;
-                    }
-
-                    return false;
-                };
-
-                const toPhotoEntry = (img, index) => {
-                    const src = img.currentSrc || img.src || '';
-                    if (!src || !/^https?:/i.test(src)) {
-                        return null;
-                    }
-
-                    const ancestor = img.closest('a, article, li, section, div');
-                    const text = (ancestor?.innerText || '').trim();
-                    const hasPhotoContext = /photo|video/i.test(text);
-                    const width = img.naturalWidth || img.width || 0;
-                    const height = img.naturalHeight || img.height || 0;
-                    const lower = src.toLowerCase();
-
-                    if (!hasPhotoContext) {
-                        return null;
-                    }
-
-                    if (width > 0 && height > 0 && width < 120 && height < 120) {
-                        return null;
-                    }
-
-                    if (lower.includes('logo') || lower.includes('icon') || lower.includes('avatar') || lower.includes('profile')) {
-                        return null;
-                    }
-
-                    const anchor = img.closest('a[href]');
-                    const originalUrl = anchor?.href || src;
-                    const id = (originalUrl.split('/').pop() || ('dom-photo-' + index)).split('?')[0];
-
-                    return {
-                        id,
-                        thumbnail_url: src,
-                        original_url: originalUrl,
-                        caption: img.alt || null,
-                        created_at: null
-                    };
-                };
-
-                let clickedPhotosTab = false;
-                if (page === 1) {
-                    clickedPhotosTab = clickPhotosTab();
-                }
-
-                if (page === 1 && clickedPhotosTab) {
-                    await sleep(1500);
-
-                    for (let i = 0; i < 8; i++) {
-                        window.scrollTo(0, document.body.scrollHeight);
-                        await sleep(400);
-                    }
-
-                    const photos = Array.from(document.querySelectorAll('img'))
-                        .map((img, index) => toPhotoEntry(img, index))
-                        .filter(Boolean);
-
-                    const deduped = [];
-                    const seen = new Set();
-                    for (const photo of photos) {
-                        if (seen.has(photo.original_url)) continue;
-                        seen.add(photo.original_url);
-                        deduped.push(photo);
-                    }
-
-                    if (deduped.length > 0) {
-                        return JSON.stringify({
-                            page: 1,
-                            per_page: deduped.length,
-                            total: deduped.length,
-                            photos: deduped
-                        });
-                    }
+                    } catch {}
                 }
 
                 return JSON.stringify({
                     error: true,
                     status: 0,
-                    body: 'No parent activity request succeeded.',
-                    diagnostics: {
-                        href: location.href,
-                        title: document.title,
-                        clickedPhotosTab,
-                        imageCount: document.querySelectorAll('img').length,
-                        requestKeys: Object.keys(window.req || {}).sort(),
-                        photoTabCandidates: Array.from(document.querySelectorAll('a, button, [role=\"tab\"], [role=\"button\"]'))
-                            .map(el => (el.textContent || '').trim())
-                            .filter(text => /photo|video/i.test(text))
-                            .slice(0, 20)
-                    }
+                    body: 'No browser activity request succeeded.'
                 });
             })();
-            """;
+            """, $"GetPhotosPageFromBrowserAsync({studentId}, {page})");
 
-        var node = await ExecuteBrowserJsonAsync(script, $"GetPhotosPageFromBrowserAsync({studentId}, {page})");
-        if (IsEmptyObject(node))
+        if (node == null || IsEmptyObject(node) || node["error"]?.GetValue<bool?>() == true)
         {
-            AppLog.Info($"Browser activity fetch returned an empty object for student {studentId}, page {page}.");
             return ([], 0, 0, false, false);
         }
 
-        var photos = ParsePhotos(node, $"browser activity fetch for student {studentId}, page {page}");
+        var photos = ParsePhotos(node, $"mobile browser activity fetch for student {studentId}, page {page}");
         var itemCount = CountItems(node);
-        var total = node?["total"]?.GetValue<int?>() ?? 0;
-        var perPage = node?["per_page"]?.GetValue<int?>() ?? Math.Max(itemCount, 50);
-        var currentPage = node?["page"]?.GetValue<int?>() ?? page;
+        var total = node["total"]?.GetValue<int?>() ?? 0;
+        var perPage = node["per_page"]?.GetValue<int?>() ?? Math.Max(itemCount, 50);
+        var currentPage = node["page"]?.GetValue<int?>() ?? page;
         var hasMore = total > 0
             ? currentPage * perPage < total
             : itemCount >= perPage && perPage > 0;
@@ -473,92 +441,54 @@ public class ProcareApiService : IProcareMediaClient
         return (photos, total, itemCount, hasMore, itemCount > 0 || photos.Count > 0);
     }
 
-    private async Task<List<Student>> GetStudentsFromHttpAsync(CancellationToken ct = default)
-    {
-        var url = $"{ApiBaseUrl}{ParentKidsPath}";
-        using var response = await _http.GetAsync(url, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            AppLog.Warn($"Student HTTP request failed. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 4000)}");
-            response.EnsureSuccessStatusCode();
-        }
-
-        return ParseStudents(JsonNode.Parse(body), "direct student fetch");
-    }
-
-    private async Task<(List<Photo> Photos, int Total, int ItemCount, bool HasMore, bool Success)> GetPhotosPageFromHttpAsync(
-        string studentId,
-        int page,
-        CancellationToken ct)
-    {
-        var failures = new List<string>();
-
-        foreach (var url in BuildParentActivityUrls(studentId, page))
-        {
-            using var response = await _http.GetAsync(url, ct);
-            var body = await response.Content.ReadAsStringAsync(ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                failures.Add($"Url: {url}. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 1000)}");
-                continue;
-            }
-
-            var node = JsonNode.Parse(body);
-            var photos = ParsePhotos(node, $"direct activity fetch for student {studentId}, page {page}");
-            var itemCount = CountItems(node);
-            var total = node?["total"]?.GetValue<int?>() ?? 0;
-            var perPage = node?["per_page"]?.GetValue<int?>() ?? Math.Max(itemCount, 50);
-            var currentPage = node?["page"]?.GetValue<int?>() ?? page;
-            var hasMore = total > 0
-                ? currentPage * perPage < total
-                : itemCount >= perPage && perPage > 0;
-
-            return (photos, total, itemCount, hasMore, itemCount > 0 || photos.Count > 0);
-        }
-
-        AppLog.Warn(
-            $"Activity HTTP request failed for student {studentId}. Attempts: {string.Join(" | ", failures)}");
-        return ([], 0, 0, false, false);
-    }
-
     private async Task<JsonNode?> ExecuteBrowserJsonAsync(string script, string operation)
     {
-        if (_webView == null)
+        var raw = await ExecuteBrowserStringAsync(script, operation);
+        if (string.IsNullOrWhiteSpace(raw) || raw == "null")
         {
             return null;
         }
 
-        var result = await _webView.ExecuteScriptAsync(script);
+        return JsonNode.Parse(raw);
+    }
+
+    private async Task<string> ExecuteBrowserStringAsync(string script, string operation)
+    {
+        if (_evaluateJavaScriptAsync == null)
+        {
+            throw new InvalidOperationException("No browser is attached to the mobile API service.");
+        }
+
+        var result = await _evaluateJavaScriptAsync(script);
         if (string.IsNullOrWhiteSpace(result) || result == "null")
         {
-            AppLog.Warn($"{operation} returned an empty WebView result.");
-            return null;
+            return result ?? "";
+        }
+
+        var trimmed = result.Trim();
+        if (trimmed.StartsWith("\"") && trimmed.EndsWith("\""))
+        {
+            return trimmed[1..^1].Replace("\\\"", "\"").Replace("\\\\", "\\");
+        }
+
+        if (trimmed.Contains("\\\""))
+        {
+            trimmed = trimmed.Replace("\\\"", "\"").Replace("\\\\", "\\");
         }
 
         try
         {
-            var envelope = JsonNode.Parse(result);
+            var envelope = JsonNode.Parse(trimmed);
             if (envelope is JsonValue value && value.TryGetValue<string>(out var jsonText))
             {
-                if (string.IsNullOrWhiteSpace(jsonText))
-                {
-                    AppLog.Warn($"{operation} returned an empty JSON payload string.");
-                    return null;
-                }
-
-                return JsonNode.Parse(jsonText);
+                return jsonText ?? "";
             }
 
-            return envelope;
+            return envelope?.ToJsonString() ?? "";
         }
         catch (Exception ex)
         {
-            AppLog.Error(
-                $"{operation} failed to parse browser JSON. Raw result: {AppLog.Truncate(result, 4000)}",
-                ex);
+            AppLog.Error($"Failed to parse browser result for {operation}. Raw: {AppLog.Truncate(result, 2000)}", ex);
             throw;
         }
     }
@@ -585,10 +515,8 @@ public class ProcareApiService : IProcareMediaClient
                 Id = FirstValue(source, "id", "student_id", "studentId", "kid_id", "kidId")
                      ?? item?["id"]?.GetValue<string>()
                      ?? "",
-                FirstName = FirstValue(source, "first_name", "firstName")
-                            ?? (nameParts.FirstOrDefault() ?? ""),
-                LastName = FirstValue(source, "last_name", "lastName")
-                           ?? string.Join(' ', nameParts.Skip(1)),
+                FirstName = FirstValue(source, "first_name", "firstName") ?? (nameParts.FirstOrDefault() ?? ""),
+                LastName = FirstValue(source, "last_name", "lastName") ?? string.Join(' ', nameParts.Skip(1)),
                 PhotoUrl = FindStudentPhotoUrl(item, source)
             });
         }
@@ -727,26 +655,9 @@ public class ProcareApiService : IProcareMediaClient
             }
         }
 
-        return photos.Where(photo => !string.IsNullOrWhiteSpace(photo.Id) && !string.IsNullOrWhiteSpace(photo.OriginalUrl)).ToList();
-    }
-
-    private static string? FirstValue(JsonNode? node, params string[] keys)
-    {
-        if (node is not JsonObject obj)
-        {
-            return null;
-        }
-
-        foreach (var key in keys)
-        {
-            var value = obj[key]?.GetValue<string?>();
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
+        return photos
+            .Where(photo => !string.IsNullOrWhiteSpace(photo.Id) && !string.IsNullOrWhiteSpace(photo.OriginalUrl))
+            .ToList();
     }
 
     private static JsonArray? TryGetArray(JsonNode? node, string context)
@@ -779,23 +690,27 @@ public class ProcareApiService : IProcareMediaClient
         }
 
         AppLog.Warn(
-            $"Browser payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}. Payload: {AppLog.Truncate(AppLog.SerializeNode(node), 4000)}");
+            $"Payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}. Payload: {AppLog.Truncate(AppLog.SerializeNode(node), 2000)}");
         return null;
     }
 
-    private static bool IsEmptyObject(JsonNode? node)
+    private static string? FirstValue(JsonNode? node, params string[] keys)
     {
-        return node is JsonObject obj && obj.Count == 0;
-    }
+        if (node is not JsonObject obj)
+        {
+            return null;
+        }
 
-    private static IEnumerable<string> BuildParentActivityUrls(string studentId, int page)
-    {
-        yield return BuildParentActivityUrl(ParentActivitiesPath, studentId, page, false);
-        yield return BuildParentActivityUrl(ParentActivitiesPath, studentId, page, true);
-        yield return BuildParentActivityUrl(ParentActivitiesPath, studentId, page, null);
-        yield return BuildParentActivityUrl(ParentDailyActivitiesPath, studentId, page, false);
-        yield return BuildParentActivityUrl(ParentDailyActivitiesPath, studentId, page, true);
-        yield return BuildParentActivityUrl(ParentDailyActivitiesPath, studentId, page, null);
+        foreach (var key in keys)
+        {
+            var value = obj[key]?.GetValue<string?>();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private static string BuildParentActivityUrl(string path, string studentId, int page, bool? useKidIdsArray)
@@ -806,29 +721,8 @@ public class ProcareApiService : IProcareMediaClient
             return baseUrl;
         }
 
-        var filterKey = useKidIdsArray.Value ? EncodeQueryKey("kid_ids[]") : "kid_id";
+        var filterKey = useKidIdsArray.Value ? Uri.EscapeDataString("kid_ids[]") : "kid_id";
         return $"{baseUrl}&{filterKey}={Uri.EscapeDataString(studentId)}";
-    }
-
-    private static List<string> ExtractStudentIds(JsonNode? item, JsonNode? source)
-    {
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        AddId(ids, FirstValue(source, "kid_id", "kidId", "student_id", "studentId"));
-        AddIds(ids, source?["kid_ids"] as JsonArray);
-        AddIds(ids, source?["kidIds"] as JsonArray);
-        AddIds(ids, source?["activity_participants"] as JsonArray);
-        AddIds(ids, source?["activityParticipants"] as JsonArray);
-
-        if (item?["relationships"]?["kids"]?["data"] is JsonArray relationshipKids)
-        {
-            foreach (var kid in relationshipKids)
-            {
-                AddId(ids, kid?["id"]?.GetValue<string>());
-            }
-        }
-
-        return ids.ToList();
     }
 
     private static int CountItems(JsonNode? node)
@@ -870,6 +764,11 @@ public class ProcareApiService : IProcareMediaClient
         return null;
     }
 
+    private static bool IsEmptyObject(JsonNode? node)
+    {
+        return node is JsonObject obj && obj.Count == 0;
+    }
+
     private static Photo? BuildPhotoFromItem(JsonNode? item)
     {
         var source = item?["attributes"] ?? item;
@@ -908,12 +807,7 @@ public class ProcareApiService : IProcareMediaClient
 
         var baseId = FirstValue(source, "id", "photo_id", "photoId", "activity_id", "activityId")
                      ?? item?["id"]?.GetValue<string>()
-                     ?? "";
-
-        if (string.IsNullOrWhiteSpace(baseId))
-        {
-            baseId = CreateUrlId(originalUrl);
-        }
+                     ?? CreateUrlId(originalUrl);
 
         return new Photo
         {
@@ -1061,18 +955,38 @@ public class ProcareApiService : IProcareMediaClient
         return string.IsNullOrWhiteSpace(candidate) ? Guid.NewGuid().ToString("N") : candidate;
     }
 
+    private static List<string> ExtractStudentIds(JsonNode? item, JsonNode? source)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        AddId(ids, FirstValue(source, "kid_id", "kidId", "student_id", "studentId"));
+        AddIds(ids, source?["kid_ids"] as JsonArray);
+        AddIds(ids, source?["kidIds"] as JsonArray);
+        AddIds(ids, source?["activity_participants"] as JsonArray);
+        AddIds(ids, source?["activityParticipants"] as JsonArray);
+
+        if (item?["relationships"]?["kids"]?["data"] is JsonArray relationshipKids)
+        {
+            foreach (var kid in relationshipKids)
+            {
+                AddId(ids, kid?["id"]?.GetValue<string>());
+            }
+        }
+
+        return ids.ToList();
+    }
+
     private static List<Photo> FilterPhotosForStudent(string studentId, List<Photo> photos)
     {
         var photosWithStudentIds = photos.Where(photo => photo.StudentIds.Count > 0).ToList();
         if (photosWithStudentIds.Count == 0)
         {
-            AppLog.Info($"Photo payload did not expose student ids for student {studentId}. Returning {photos.Count} unfiltered photos.");
             return photos;
         }
 
-        var filtered = photos.Where(photo => photo.StudentIds.Contains(studentId, StringComparer.OrdinalIgnoreCase)).ToList();
-        AppLog.Info($"Filtered {photos.Count} photos down to {filtered.Count} for student {studentId} using embedded student ids.");
-        return filtered;
+        return photos
+            .Where(photo => photo.StudentIds.Contains(studentId, StringComparer.OrdinalIgnoreCase))
+            .ToList();
     }
 
     private static void AddIds(HashSet<string> ids, JsonArray? array)
@@ -1100,10 +1014,5 @@ public class ProcareApiService : IProcareMediaClient
         {
             ids.Add(id);
         }
-    }
-
-    private static string EncodeQueryKey(string key)
-    {
-        return Uri.EscapeDataString(key);
     }
 }

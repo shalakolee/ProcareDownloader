@@ -3,14 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="Views/MainWindow.xaml">
     <Application.Resources>
-        <!-- Color Palette -->
-        <Color x:Key="DeepNavy">#0D1B2A</Color>
-        <Color x:Key="MidBlue">#1A3A5C</Color>
-        <Color x:Key="AccentTeal">#00C2A8</Color>
-        <Color x:Key="SoftWhite">#EFF6F5</Color>
-        <Color x:Key="MutedText">#8BA3B8</Color>
-        <Color x:Key="CardBg">#142233</Color>
-        <Color x:Key="SelectedOverlay">#4000C2A8</Color>
+        <!-- Light operational palette inspired by the Stitch exploration -->
+        <Color x:Key="DeepNavy">#F7F9FC</Color>
+        <Color x:Key="MidBlue">#D7DEE8</Color>
+        <Color x:Key="AccentTeal">#0D9488</Color>
+        <Color x:Key="SoftWhite">#111827</Color>
+        <Color x:Key="MutedText">#64748B</Color>
+        <Color x:Key="CardBg">#FFFFFF</Color>
+        <Color x:Key="SelectedOverlay">#1A0D9488</Color>
 
         <SolidColorBrush x:Key="DeepNavyBrush" Color="{StaticResource DeepNavy}"/>
         <SolidColorBrush x:Key="MidBlueBrush" Color="{StaticResource MidBlue}"/>
@@ -18,15 +18,19 @@
         <SolidColorBrush x:Key="SoftWhiteBrush" Color="{StaticResource SoftWhite}"/>
         <SolidColorBrush x:Key="MutedTextBrush" Color="{StaticResource MutedText}"/>
         <SolidColorBrush x:Key="CardBgBrush" Color="{StaticResource CardBg}"/>
-        <SolidColorBrush x:Key="ScrollTrackBrush" Color="#102031"/>
-        <SolidColorBrush x:Key="ScrollThumbBrush" Color="#1F4A70"/>
-        <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#00C2A8"/>
-        <SolidColorBrush x:Key="ScrollButtonBrush" Color="#142233"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SubtlePanelBrush" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="AppBorderBrush" Color="#E2E8F0"/>
+        <SolidColorBrush x:Key="SavedGreenBrush" Color="#16A34A"/>
+        <SolidColorBrush x:Key="ScrollTrackBrush" Color="#EEF2F7"/>
+        <SolidColorBrush x:Key="ScrollThumbBrush" Color="#CBD5E1"/>
+        <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#0D9488"/>
+        <SolidColorBrush x:Key="ScrollButtonBrush" Color="#F8FAFC"/>
 
         <!-- Button Style -->
         <Style x:Key="TealButton" TargetType="Button">
             <Setter Property="Background" Value="{StaticResource AccentTealBrush}"/>
-            <Setter Property="Foreground" Value="{StaticResource DeepNavyBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="18,9"/>
@@ -42,10 +46,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#00DFC4"/>
+                                <Setter Property="Background" Value="#0F766E"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#1A3A4C"/>
+                                <Setter Property="Background" Value="#CBD5E1"/>
                                 <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -55,8 +59,8 @@
         </Style>
 
         <Style x:Key="GhostButton" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#334155"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="14,8"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -75,7 +79,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="BorderBrush" Value="{StaticResource AccentTealBrush}"/>
-                                <Setter Property="Foreground" Value="{StaticResource SoftWhiteBrush}"/>
+                                <Setter Property="Foreground" Value="#0F172A"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

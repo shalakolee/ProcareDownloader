@@ -17,6 +17,8 @@ public class Student
     public string? PhotoUrl { get; set; }
 
     public string FullName => $"{FirstName} {LastName}".Trim();
+    public bool HasPhotoUrl => !string.IsNullOrWhiteSpace(PhotoUrl);
+    public bool HasNoPhotoUrl => !HasPhotoUrl;
 }
 
 public class Photo
@@ -37,11 +39,6 @@ public class Photo
     public string? Caption { get; set; }
 
     public List<string> StudentIds { get; set; } = [];
-
-    // UI state
-    public bool IsSelected { get; set; }
-    public System.Windows.Media.Imaging.BitmapImage? Thumbnail { get; set; }
-    public bool IsLoaded { get; set; }
 }
 
 public class TokenInfo

@@ -1,0 +1,541 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:ProcareDownloader.Mobile.ViewModels"
+             x:Class="ProcareDownloader.Mobile.MainPage"
+             x:Name="RootPage"
+             BackgroundColor="#F7F9FC">
+
+    <Grid>
+        <Grid RowDefinitions="Auto,*,Auto">
+            <Border Grid.Row="0"
+                    BackgroundColor="#FFFFFF"
+                    Stroke="#E2E8F0"
+                    StrokeThickness="1"
+                    Padding="10,8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                      ColumnSpacing="8">
+                    <Button Text="‹"
+                            BackgroundColor="#FFFFFF"
+                            TextColor="#0F172A"
+                            FontSize="20"
+                            WidthRequest="36"
+                            HeightRequest="36"
+                            Padding="0"
+                            Command="{Binding BackToStudentsCommand}"
+                            IsVisible="{Binding IsGalleryVisible}" />
+
+                    <HorizontalStackLayout Grid.Column="1"
+                                           Spacing="10"
+                                           VerticalOptions="Center">
+                        <Border WidthRequest="34"
+                                HeightRequest="34"
+                                BackgroundColor="#E2E8F0"
+                                StrokeThickness="0"
+                                IsVisible="{Binding IsGalleryVisible}">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="17" />
+                            </Border.StrokeShape>
+                            <Grid>
+                                <Image Source="{Binding SelectedStudent.PhotoUrl}"
+                                       Aspect="AspectFill"
+                                       IsVisible="{Binding SelectedStudent.HasPhotoUrl}" />
+                                <Label Text="👤"
+                                       IsVisible="{Binding SelectedStudent.HasNoPhotoUrl}"
+                                       HorizontalTextAlignment="Center"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="18" />
+                            </Grid>
+                        </Border>
+                        <VerticalStackLayout Spacing="0"
+                                             VerticalOptions="Center">
+                            <Label Text="{Binding HeaderTitle}"
+                                   TextColor="#0F172A"
+                                   FontSize="14"
+                                   FontAttributes="Bold" />
+                            <Label Text="{Binding HeaderSubtitle}"
+                                   TextColor="#64748B"
+                                   FontSize="10"
+                                   MaxLines="1" />
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+
+                    <Button Grid.Column="2"
+                            Text="⚙"
+                            Margin="8,0,0,0"
+                            BackgroundColor="#FFFFFF"
+                            BorderColor="#E2E8F0"
+                            BorderWidth="1"
+                            TextColor="#0F172A"
+                            WidthRequest="42"
+                            HeightRequest="36"
+                            Padding="0"
+                            Command="{Binding OpenSettingsCommand}"
+                            IsVisible="{Binding IsGalleryVisible}" />
+
+                    <Button Grid.Column="3"
+                            Text="{Binding SelectAllButtonText}"
+                            Margin="8,0,0,0"
+                            BackgroundColor="#EFF6FF"
+                            BorderColor="#E2E8F0"
+                            BorderWidth="1"
+                            TextColor="#0F172A"
+                            FontSize="12"
+                            HeightRequest="36"
+                            Padding="12,0"
+                            Command="{Binding ToggleSelectAllCommand}"
+                            IsVisible="{Binding IsGalleryVisible}" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1">
+                <Grid IsVisible="{Binding IsLoginVisible}">
+                    <WebView
+                             x:Name="LoginWebView"
+                             Source="{Binding LoginUrl}"
+                             HandlerChanged="LoginWebView_HandlerChanged"
+                             Navigated="LoginWebView_Navigated" />
+                </Grid>
+
+                <VerticalStackLayout IsVisible="{Binding IsLoadingVisible}"
+                                     HorizontalOptions="Center"
+                                     VerticalOptions="Center"
+                                     Spacing="16">
+                    <ActivityIndicator IsRunning="True"
+                                       Color="#0D9488"
+                                       WidthRequest="48"
+                                       HeightRequest="48" />
+                    <Label Text="{Binding StatusMessage}"
+                           TextColor="#0F172A"
+                           FontSize="15"
+                           HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout IsVisible="{Binding IsStudentSelectionVisible}"
+                                     Padding="18"
+                                     Spacing="14">
+                    <Label Text="Select a student"
+                           TextColor="#0F172A"
+                           FontSize="24"
+                           FontAttributes="Bold" />
+                    <Label Text="{Binding SubStatus}"
+                           TextColor="#64748B"
+                           FontSize="12" />
+
+                    <CollectionView ItemsSource="{Binding Students}"
+                                    SelectionMode="None">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Border BackgroundColor="#FFFFFF"
+                                        Stroke="#E2E8F0"
+                                        StrokeThickness="1"
+                                        Padding="16"
+                                        Margin="0,0,0,10">
+                                    <Border.StrokeShape>
+                                        <RoundRectangle CornerRadius="16" />
+                                    </Border.StrokeShape>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer
+                                            Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.SelectStudentCommand}"
+                                            CommandParameter="{Binding .}" />
+                                    </Border.GestureRecognizers>
+                                    <HorizontalStackLayout Spacing="14">
+                                        <Border WidthRequest="44"
+                                                HeightRequest="44"
+                                                BackgroundColor="#E2E8F0"
+                                                StrokeThickness="0">
+                                            <Border.StrokeShape>
+                                                <RoundRectangle CornerRadius="22" />
+                                            </Border.StrokeShape>
+                                            <Grid>
+                                                <Image Source="{Binding PhotoUrl}"
+                                                       Aspect="AspectFill"
+                                                       IsVisible="{Binding HasPhotoUrl}" />
+                                                <Label Text="👤"
+                                                       IsVisible="{Binding HasNoPhotoUrl}"
+                                                       VerticalTextAlignment="Center"
+                                                       HorizontalTextAlignment="Center"
+                                                       FontSize="22" />
+                                            </Grid>
+                                        </Border>
+                                        <VerticalStackLayout Spacing="2">
+                                            <Label Text="{Binding FullName}"
+                                                   TextColor="#0F172A"
+                                                   FontSize="16"
+                                                   FontAttributes="Bold" />
+                                            <Label Text="Tap to browse photos"
+                                                   TextColor="#64748B"
+                                                   FontSize="12" />
+                                        </VerticalStackLayout>
+                                    </HorizontalStackLayout>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+
+                <Grid IsVisible="{Binding IsGalleryVisible}"
+                      Padding="0">
+                    <CollectionView
+                                    ItemsSource="{Binding GalleryRows}"
+                                    SelectionMode="None"
+                                    ItemSizingStrategy="MeasureAllItems"
+                                    BackgroundColor="#F7F9FC">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MobileGalleryRowViewModel">
+                                <Grid Padding="2,0">
+                                    <Grid Padding="2,8,2,3"
+                                          MinimumHeightRequest="34"
+                                          IsVisible="{Binding IsHeader}">
+                                        <Border.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding ToggleExpandedCommand}" />
+                                        </Border.GestureRecognizers>
+                                        <Grid ColumnDefinitions="*,Auto,Auto"
+                                              ColumnSpacing="8">
+                                            <VerticalStackLayout Spacing="0">
+                                                <Label Text="{Binding Label}"
+                                                       TextColor="#0F172A"
+                                                       FontSize="13"
+                                                       FontAttributes="Bold" />
+                                                <Label TextColor="#64748B"
+                                                       FontSize="10">
+                                                    <Label.FormattedText>
+                                                        <FormattedString>
+                                                            <Span Text="{Binding TotalCount}" />
+                                                            <Span Text=" photos · " />
+                                                            <Span Text="{Binding SelectedCount}" />
+                                                            <Span Text=" selected · " />
+                                                            <Span Text="{Binding DownloadedCount}" />
+                                                            <Span Text=" saved" />
+                                                        </FormattedString>
+                                                    </Label.FormattedText>
+                                                </Label>
+                                            </VerticalStackLayout>
+                                            <Button Grid.Column="1"
+                                                    Text="{Binding SelectMonthText}"
+                                                    Command="{Binding ToggleMonthSelectionCommand}"
+                                                    BackgroundColor="#FFFFFF"
+                                                    BorderColor="#E2E8F0"
+                                                    BorderWidth="1"
+                                                    TextColor="#0F172A"
+                                                    FontSize="10"
+                                                    Padding="8,0"
+                                                    HeightRequest="28"
+                                                    VerticalOptions="Center" />
+                                            <Label Grid.Column="2"
+                                                   Text="{Binding ChevronGlyph}"
+                                                   TextColor="#0D9488"
+                                                   FontSize="17"
+                                                   VerticalTextAlignment="Center"
+                                                   HorizontalTextAlignment="Center" />
+                                        </Grid>
+                                    </Grid>
+
+                                    <HorizontalStackLayout Spacing="2"
+                                                           HeightRequest="112"
+                                                           IsVisible="{Binding IsPhotoRow}"
+                                                           BindableLayout.ItemsSource="{Binding Photos}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:MobilePhotoItemViewModel">
+                                                <Border WidthRequest="112"
+                                                        HeightRequest="112"
+                                                        BackgroundColor="#E9EEF5"
+                                                        Stroke="#F7F9FC"
+                                                        StrokeThickness="0"
+                                                        Padding="0">
+                                                    <Border.StrokeShape>
+                                                        <RoundRectangle CornerRadius="3" />
+                                                    </Border.StrokeShape>
+                                                    <Border.Triggers>
+                                                        <DataTrigger TargetType="Border"
+                                                                     Binding="{Binding IsSelected}"
+                                                                     Value="True">
+                                                            <Setter Property="Stroke" Value="#0D9488" />
+                                                            <Setter Property="StrokeThickness" Value="3" />
+                                                        </DataTrigger>
+                                                    </Border.Triggers>
+                                                    <Border.GestureRecognizers>
+                                                        <TapGestureRecognizer Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.OpenPhotoViewerCommand}"
+                                                                              CommandParameter="{Binding .}" />
+                                                    </Border.GestureRecognizers>
+                                                    <Grid>
+                                                        <Image Source="{Binding ThumbnailSource}"
+                                                               Aspect="AspectFill" />
+                                                        <Border BackgroundColor="#F7F9FC"
+                                                                Opacity="0.94"
+                                                                IsVisible="False">
+                                                            <Border.Triggers>
+                                                                <DataTrigger TargetType="Border"
+                                                                             Binding="{Binding ThumbnailSource}"
+                                                                             Value="{x:Null}">
+                                                                    <Setter Property="IsVisible" Value="True" />
+                                                                </DataTrigger>
+                                                            </Border.Triggers>
+                                                            <ActivityIndicator IsRunning="True"
+                                                                               Color="#0D9488"
+                                                                               WidthRequest="24"
+                                                                               HeightRequest="24"
+                                                                               HorizontalOptions="Center"
+                                                                               VerticalOptions="Center" />
+                                                        </Border>
+
+                                                        <Button Text="✓"
+                                                                Command="{Binding ToggleSelectionCommand}"
+                                                                BackgroundColor="#99000000"
+                                                                BorderColor="#FFFFFF"
+                                                                BorderWidth="1"
+                                                                TextColor="#FFFFFF"
+                                                                WidthRequest="26"
+                                                                HeightRequest="26"
+                                                                Padding="0"
+                                                                CornerRadius="13"
+                                                                HorizontalOptions="Start"
+                                                                VerticalOptions="Start"
+                                                                Margin="5">
+                                                            <Button.Triggers>
+                                                                <DataTrigger TargetType="Button"
+                                                                             Binding="{Binding IsSelected}"
+                                                                             Value="True">
+                                                                    <Setter Property="BackgroundColor" Value="#0D9488" />
+                                                                    <Setter Property="BorderColor" Value="#0D9488" />
+                                                                    <Setter Property="TextColor" Value="White" />
+                                                                </DataTrigger>
+                                                            </Button.Triggers>
+                                                        </Button>
+
+                                                        <Border BackgroundColor="#16A34A"
+                                                                StrokeThickness="0"
+                                                                IsVisible="{Binding IsDownloaded}"
+                                                                Padding="5,2"
+                                                                HorizontalOptions="End"
+                                                                VerticalOptions="End"
+                                                                Margin="5">
+                                                            <Border.StrokeShape>
+                                                                <RoundRectangle CornerRadius="3" />
+                                                            </Border.StrokeShape>
+                                                            <Label Text="SAVED"
+                                                                   TextColor="White"
+                                                                   FontSize="8"
+                                                                   FontAttributes="Bold" />
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </HorizontalStackLayout>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Grid>
+
+                <Grid IsVisible="{Binding IsSettingsOpen}"
+                      BackgroundColor="#660F172A"
+                      Padding="18">
+                    <Border BackgroundColor="#FFFFFF"
+                            Stroke="#E2E8F0"
+                            StrokeThickness="1"
+                            Padding="18"
+                            VerticalOptions="End">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="18" />
+                        </Border.StrokeShape>
+                        <VerticalStackLayout Spacing="14">
+                            <Label Text="Settings"
+                                   TextColor="#0F172A"
+                                   FontSize="20"
+                                   FontAttributes="Bold" />
+                            <Label Text="Choose the download layout used when the app saves photos locally."
+                                   TextColor="#64748B"
+                                   FontSize="12" />
+                            <Picker Title="Save Layout"
+                                    ItemsSource="{Binding DownloadLayoutOptions}"
+                                    SelectedItem="{Binding SelectedDownloadLayout}"
+                                    TextColor="#0F172A"
+                                    BackgroundColor="#FFFFFF" />
+                            <Label Text="{Binding DownloadLayoutPreview}"
+                                   TextColor="#64748B"
+                                   FontSize="12" />
+                            <Label Text="{Binding CacheUsageText}"
+                                   TextColor="#64748B"
+                                   FontSize="12" />
+                            <Button Text="Clear Photo Cache"
+                                    Command="{Binding ClearCacheCommand}"
+                                    BackgroundColor="#FFFFFF"
+                                    BorderColor="#E2E8F0"
+                                    BorderWidth="1"
+                                    TextColor="#0F172A" />
+                            <Button Text="Sign Out"
+                                    Command="{Binding SignOutCommand}"
+                                    BackgroundColor="#0D9488"
+                                    TextColor="#F7F9FC" />
+                            <Button Text="Close"
+                                    Command="{Binding CloseSettingsCommand}"
+                                    BackgroundColor="#FFFFFF"
+                                    BorderColor="#E2E8F0"
+                                    BorderWidth="1"
+                                    TextColor="#0F172A" />
+                        </VerticalStackLayout>
+                    </Border>
+                </Grid>
+
+                <Grid IsVisible="{Binding IsPhotoViewerOpen}"
+                      BackgroundColor="#CC0F172A"
+                      Padding="12">
+                    <Border BackgroundColor="#FFFFFF"
+                            Stroke="#E2E8F0"
+                            StrokeThickness="1"
+                            Padding="14">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="18" />
+                        </Border.StrokeShape>
+                        <Grid RowDefinitions="Auto,*,Auto"
+                              RowSpacing="12">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <VerticalStackLayout Spacing="2">
+                                    <Label Text="{Binding PhotoViewerTitle}"
+                                           TextColor="#0F172A"
+                                           FontSize="18"
+                                           FontAttributes="Bold" />
+                                    <Label Text="{Binding PhotoViewerSubtitle}"
+                                           TextColor="#64748B"
+                                           FontSize="12" />
+                                </VerticalStackLayout>
+                                <Button Grid.Column="1"
+                                        Text="Close"
+                                        Command="{Binding ClosePhotoViewerCommand}"
+                                        BackgroundColor="#FFFFFF"
+                                        BorderColor="#E2E8F0"
+                                        BorderWidth="1"
+                                        TextColor="#0F172A" />
+                            </Grid>
+
+                            <Grid Grid.Row="1"
+                                  x:Name="PhotoViewerViewport">
+                                <Grid.GestureRecognizers>
+                                    <SwipeGestureRecognizer Direction="Left"
+                                                            Command="{Binding ShowNextPhotoCommand}" />
+                                    <SwipeGestureRecognizer Direction="Right"
+                                                            Command="{Binding ShowPreviousPhotoCommand}" />
+                                </Grid.GestureRecognizers>
+                                <Image x:Name="PhotoViewerImage"
+                                       Source="{Binding PhotoViewerSource}"
+                                       Aspect="AspectFit"
+                                       MinimumHeightRequest="260"
+                                       MinimumWidthRequest="260">
+                                    <Image.GestureRecognizers>
+                                        <PinchGestureRecognizer PinchUpdated="PhotoViewerImage_PinchUpdated" />
+                                        <PanGestureRecognizer PanUpdated="PhotoViewerImage_PanUpdated" />
+                                        <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                              Tapped="PhotoViewerImage_DoubleTapped" />
+                                    </Image.GestureRecognizers>
+                                </Image>
+                                <ActivityIndicator IsRunning="{Binding IsPhotoViewerLoading}"
+                                                   IsVisible="{Binding IsPhotoViewerLoading}"
+                                                   Color="#0D9488"
+                                                   WidthRequest="42"
+                                                   HeightRequest="42"
+                                                   HorizontalOptions="Center"
+                                                   VerticalOptions="Center" />
+                            </Grid>
+
+                            <Grid Grid.Row="2"
+                                  ColumnDefinitions="*,*"
+                                  ColumnSpacing="10">
+                                <Button Text="Previous"
+                                        Command="{Binding ShowPreviousPhotoCommand}"
+                                        IsEnabled="{Binding CanShowPreviousPhoto}"
+                                        BackgroundColor="#FFFFFF"
+                                        BorderColor="#E2E8F0"
+                                        BorderWidth="1"
+                                        TextColor="#0F172A" />
+                                <Button Grid.Column="1"
+                                        Text="Next"
+                                        Command="{Binding ShowNextPhotoCommand}"
+                                        IsEnabled="{Binding CanShowNextPhoto}"
+                                        BackgroundColor="#0D9488"
+                                        TextColor="#F7F9FC" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <Border Grid.Row="2"
+                    BackgroundColor="#F2FFFFFF"
+                    Stroke="#E2E8F0"
+                    StrokeThickness="1"
+                    Padding="10,8"
+                    IsVisible="{Binding IsGalleryVisible}">
+                <VerticalStackLayout Spacing="10">
+                    <ProgressBar Progress="{Binding ProgressValue}"
+                                 IsVisible="{Binding IsDownloading}"
+                                 ProgressColor="#0D9488"
+                                 BackgroundColor="#E2E8F0" />
+                    <Label Text="{Binding ProgressText}"
+                           TextColor="#0F172A"
+                           FontSize="11"
+                           IsVisible="{Binding IsDownloading}" />
+                    <Grid ColumnDefinitions="Auto,*,*"
+                          ColumnSpacing="8">
+                        <Label TextColor="#64748B"
+                               FontSize="11"
+                               VerticalTextAlignment="Center">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="{Binding SelectedCount}" />
+                                    <Span Text=" selected" />
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+                        <Button Grid.Column="1"
+                                Text="{Binding UnsavedDownloadButtonText}"
+                                Command="{Binding DownloadUnsavedCommand}"
+                                BackgroundColor="#FFFFFF"
+                                BorderColor="#E2E8F0"
+                                BorderWidth="1"
+                                TextColor="#0F172A"
+                                HeightRequest="42" />
+                        <Button Grid.Column="2"
+                                Text="Download Selected"
+                                Command="{Binding DownloadSelectedCommand}"
+                                BackgroundColor="#0D9488"
+                                TextColor="#F7F9FC"
+                                HeightRequest="42" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <Grid IsVisible="{Binding IsThumbnailPrefetchOverlayVisible}"
+              BackgroundColor="#B30F172A"
+              InputTransparent="False"
+              ZIndex="20">
+            <Border BackgroundColor="#FFFFFF"
+                    Stroke="#E2E8F0"
+                    StrokeThickness="1"
+                    Padding="18"
+                    HorizontalOptions="Center"
+                    VerticalOptions="Center">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <ActivityIndicator IsRunning="True"
+                                       Color="#0D9488"
+                                       WidthRequest="44"
+                                       HeightRequest="44" />
+                    <Label Text="Rendering gallery thumbnails..."
+                           TextColor="#0F172A"
+                           FontSize="14"
+                           HorizontalTextAlignment="Center" />
+                    <Label Text="Months will auto-collapse when ready."
+                           TextColor="#64748B"
+                           FontSize="12"
+                           HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+    </Grid>
+
+</ContentPage>

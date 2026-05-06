@@ -16,6 +16,8 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly ProcareApiService _api;
     private readonly DownloadService _downloader;
+    private readonly DesktopImageCacheService _imageCache;
+    private readonly DesktopPhotoMetadataCacheService _photoCache;
     private readonly DownloadHistoryService _history;
     private readonly SettingsService _settingsService;
     private readonly AppSettings _settings;
@@ -24,11 +26,15 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         ProcareApiService api,
         DownloadService downloader,
+        DesktopImageCacheService imageCache,
+        DesktopPhotoMetadataCacheService photoCache,
         DownloadHistoryService history,
         SettingsService settingsService)
     {
         _api = api;
         _downloader = downloader;
+        _imageCache = imageCache;
+        _photoCache = photoCache;
         _history = history;
         _settingsService = settingsService;
         _settings = _settingsService.Load();
@@ -66,10 +72,19 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isSettingsOpen;
     [ObservableProperty] private string _progressText = "";
     [ObservableProperty] private DownloadLayoutOption? _selectedDownloadLayout;
+    [ObservableProperty] private string _lastSavedFolderPath = "";
+    [ObservableProperty] private bool _isPhotoViewerOpen;
+    [ObservableProperty] private bool _isPhotoViewerLoading;
+    [ObservableProperty] private BitmapImage? _photoViewerImage;
+    [ObservableProperty] private string _photoViewerTitle = "";
+    [ObservableProperty] private string _photoViewerSubtitle = "";
+    [ObservableProperty] private PhotoViewModel? _activeViewerPhoto;
+    [ObservableProperty] private string _cacheUsageText = "Cache: checking...";
 
     public ObservableCollection<Student> Students { get; } = [];
     public ObservableCollection<PhotoViewModel> Photos { get; } = [];
     public ObservableCollection<PhotoMonthGroupViewModel> MonthGroups { get; } = [];
+    public ObservableCollection<DesktopGalleryRowViewModel> GalleryRows { get; } = [];
     public ObservableCollection<DownloadLayoutOption> DownloadLayoutOptions { get; } = [];
 
     public int SelectedCount => Photos.Count(photo => photo.IsSelected);
@@ -77,12 +92,15 @@ public partial class MainViewModel : ObservableObject
     public int DownloadedCount => Photos.Count(photo => photo.IsDownloaded);
     public int UnsavedCount => Photos.Count(photo => !photo.IsDownloaded);
     public int DownloadHistoryCount => _history.Count;
+    public bool HasLastSavedFolder => !string.IsNullOrWhiteSpace(LastSavedFolderPath) && Directory.Exists(LastSavedFolderPath);
     public string SelectAllButtonText => AllSelected ? "Deselect All" : "Select All";
     public string UnsavedDownloadButtonText => $"⬇ Download Unsaved ({UnsavedCount})";
     public string DownloadLayoutPreview => DownloadService.BuildLayoutPreviewPath(
         "Chosen folder",
         SelectedDownloadLayout?.Layout ?? DownloadLayout.StudentYearMonth,
         SelectedStudent?.FullName);
+    public bool CanShowPreviousPhoto => ActiveViewerPhoto != null && Photos.IndexOf(ActiveViewerPhoto) > 0;
+    public bool CanShowNextPhoto => ActiveViewerPhoto != null && Photos.IndexOf(ActiveViewerPhoto) >= 0 && Photos.IndexOf(ActiveViewerPhoto) < Photos.Count - 1;
 
     partial void OnSelectedDownloadLayoutChanged(DownloadLayoutOption? value)
     {
@@ -101,6 +119,11 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(DownloadLayoutPreview));
     }
 
+    partial void OnLastSavedFolderPathChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasLastSavedFolder));
+    }
+
     [RelayCommand]
     public void OpenSettings()
     {
@@ -111,6 +134,22 @@ public partial class MainViewModel : ObservableObject
     public void CloseSettings()
     {
         IsSettingsOpen = false;
+    }
+
+    [RelayCommand]
+    public async Task ClearCacheAsync()
+    {
+        await _imageCache.ClearAsync();
+        foreach (var photo in Photos)
+        {
+            photo.Thumbnail = null;
+            photo.IsLoaded = false;
+            photo.FullImage = null;
+        }
+
+        PhotoViewerImage = ActiveViewerPhoto?.Thumbnail;
+        RefreshCacheUsage();
+        _ = LoadThumbnailsAsync(_cts?.Token ?? CancellationToken.None);
     }
 
     [RelayCommand]
@@ -187,38 +226,76 @@ public partial class MainViewModel : ObservableObject
         ClearGallery();
 
         _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+        var studentId = SelectedStudent.Id;
+        var studentName = SelectedStudent.FullName;
 
         try
         {
+            var cached = await _photoCache.TryLoadAsync(studentId, token);
+            if (cached.HasCache)
+            {
+                ApplyPhotosToGallery(cached.Photos);
+
+                var ageMinutes = Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - cached.SavedAtUtc).TotalMinutes));
+                State = AppState.Gallery;
+                StatusMessage = $"{studentName} — {Photos.Count} photos";
+                SubStatus = cached.IsFresh
+                    ? $"{DownloadedCount} already downloaded • loaded from cache"
+                    : $"{DownloadedCount} already downloaded • cache is {ageMinutes} minutes old, refreshing...";
+                IsIndeterminate = false;
+                AppLog.Info(
+                    cached.IsFresh
+                        ? $"Loaded cached photos for {studentName}. Count: {Photos.Count}."
+                        : $"Loaded stale cached photos for {studentName}. Count: {Photos.Count}. Starting refresh.");
+                _ = LoadThumbnailsAsync(token);
+
+                if (cached.IsFresh)
+                {
+                    return;
+                }
+            }
+
+            IsIndeterminate = true;
             var progress = new Progress<(int loaded, int total)>(item =>
             {
                 var totalText = item.total > 0 ? item.total.ToString() : "?";
                 StatusMessage = $"Loading photos... {item.loaded}/{totalText}";
             });
 
-            var photos = await _api.GetPhotosAsync(SelectedStudent.Id, progress, _cts.Token);
+            var photos = await _api.GetPhotosAsync(studentId, progress, token);
+            await _photoCache.SaveAsync(studentId, photos, token);
 
-            foreach (var photo in photos.OrderByDescending(item => item.CreatedAt))
+            if (!cached.HasCache || !DesktopPhotoMetadataCacheService.AreEquivalent(cached.Photos, photos))
             {
-                Photos.Add(new PhotoViewModel(photo, _history.IsDownloaded(photo)));
+                ApplyPhotosToGallery(photos);
             }
 
-            RebuildMonthGroups();
-
             State = AppState.Gallery;
-            StatusMessage = $"{SelectedStudent.FullName} — {Photos.Count} photos";
+            StatusMessage = $"{studentName} — {Photos.Count} photos";
             SubStatus = $"{DownloadedCount} already downloaded";
-            AppLog.Info($"Photo load completed for {SelectedStudent.FullName} with {Photos.Count} photos.");
+            AppLog.Info($"Photo load completed for {studentName} with {Photos.Count} photos.");
 
-            _ = LoadThumbnailsAsync(_cts.Token);
+            _ = LoadThumbnailsAsync(token);
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            AppLog.Error($"Error loading photos for student {SelectedStudent.Id}.", ex);
+            if (MonthGroups.Count > 0)
+            {
+                State = AppState.Gallery;
+                StatusMessage = $"{studentName} — {Photos.Count} photos";
+                SubStatus = $"Using cached photos. Refresh failed: {ex.Message}";
+                AppLog.Error($"Photo refresh failed for student {studentId}; cached data kept.", ex);
+                return;
+            }
+
+            AppLog.Error($"Error loading photos for student {studentId}.", ex);
+            State = AppState.SelectStudent;
             StatusMessage = $"Error loading photos: {ex.Message}";
+            SubStatus = "Select the student again to retry.";
         }
         finally
         {
@@ -226,39 +303,57 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private void ApplyPhotosToGallery(IReadOnlyCollection<Photo> photos)
+    {
+        ClearGallery();
+
+        foreach (var photo in photos.OrderByDescending(item => item.CreatedAt))
+        {
+            var viewModel = new PhotoViewModel(photo, _history.IsDownloaded(photo));
+            var cachedThumbnail = _imageCache.GetThumbnail(photo);
+            if (cachedThumbnail != null)
+            {
+                viewModel.Thumbnail = cachedThumbnail;
+                viewModel.IsLoaded = true;
+            }
+
+            viewModel.FullImage = _imageCache.GetFullImage(photo);
+
+            Photos.Add(viewModel);
+        }
+
+        RebuildMonthGroups();
+    }
+
     private async Task LoadThumbnailsAsync(CancellationToken ct)
     {
-        var semaphore = new SemaphoreSlim(6);
         var tasks = Photos.Select(async photoViewModel =>
         {
-            await semaphore.WaitAsync(ct);
             try
             {
-                if (string.IsNullOrEmpty(photoViewModel.Photo.ThumbnailUrl))
+                if (ct.IsCancellationRequested || photoViewModel.IsLoaded)
                 {
                     return;
                 }
 
-                var bytes = await _api.GetThumbnailBytesAsync(photoViewModel.Photo.ThumbnailUrl, ct);
+                var bitmap = await _imageCache.EnsureThumbnailCachedAsync(photoViewModel.Photo, ct);
+                if (bitmap == null)
+                {
+                    return;
+                }
+
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.StreamSource = new MemoryStream(bytes);
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.EndInit();
-                    bitmap.Freeze();
                     photoViewModel.Thumbnail = bitmap;
                     photoViewModel.IsLoaded = true;
                 });
             }
+            catch (OperationCanceledException)
+            {
+            }
             catch (Exception ex)
             {
                 AppLog.Warn($"Thumbnail load failed for photo {photoViewModel.Photo.Id}: {ex.Message}");
-            }
-            finally
-            {
-                semaphore.Release();
             }
         });
 
@@ -299,6 +394,84 @@ public partial class MainViewModel : ObservableObject
         RefreshSelectionState();
     }
 
+    public async Task OpenPhotoViewerAsync(PhotoViewModel? photo)
+    {
+        if (photo == null)
+        {
+            return;
+        }
+
+        ActiveViewerPhoto = photo;
+        PhotoViewerTitle = string.IsNullOrWhiteSpace(photo.Photo.Caption) ? "Photo" : photo.Photo.Caption!;
+        PhotoViewerSubtitle = photo.DateLabel;
+        PhotoViewerImage = photo.FullImage ?? photo.Thumbnail;
+        IsPhotoViewerOpen = true;
+        IsPhotoViewerLoading = photo.FullImage == null;
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
+
+        if (photo.FullImage != null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bitmap = await _imageCache.EnsureFullImageCachedAsync(photo.Photo, _cts?.Token ?? CancellationToken.None);
+            if (bitmap == null)
+            {
+                return;
+            }
+
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                photo.FullImage = bitmap;
+                if (ActiveViewerPhoto == photo)
+                {
+                    PhotoViewerImage = bitmap;
+                }
+
+                IsPhotoViewerLoading = false;
+                RefreshCacheUsage();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            IsPhotoViewerLoading = false;
+        }
+        catch (Exception ex)
+        {
+            IsPhotoViewerLoading = false;
+            SubStatus = $"Could not open full-size photo: {ex.Message}";
+            AppLog.Error($"Desktop full-size photo load failed for {photo.Photo.Id}.", ex);
+        }
+    }
+
+    [RelayCommand]
+    public void ClosePhotoViewer()
+    {
+        IsPhotoViewerOpen = false;
+        IsPhotoViewerLoading = false;
+        ActiveViewerPhoto = null;
+        PhotoViewerImage = null;
+        PhotoViewerTitle = "";
+        PhotoViewerSubtitle = "";
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
+    }
+
+    [RelayCommand]
+    public async Task ShowPreviousPhotoAsync()
+    {
+        await MovePhotoViewerAsync(-1);
+    }
+
+    [RelayCommand]
+    public async Task ShowNextPhotoAsync()
+    {
+        await MovePhotoViewerAsync(1);
+    }
+
     public void PrepareForLogin(string message)
     {
         _cts?.Cancel();
@@ -312,6 +485,7 @@ public partial class MainViewModel : ObservableObject
         SubStatus = "";
         ProgressValue = 0;
         ProgressText = "";
+        LastSavedFolderPath = "";
     }
 
     [RelayCommand]
@@ -378,6 +552,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         MonthGroups.Clear();
+        GalleryRows.Clear();
+        ClosePhotoViewer();
         RefreshSelectionState();
     }
 
@@ -405,7 +581,28 @@ public partial class MainViewModel : ObservableObject
             MonthGroups.Add(group);
         }
 
+        RebuildGalleryRows();
+        RefreshCacheUsage();
         RefreshSelectionState();
+    }
+
+    private void RebuildGalleryRows()
+    {
+        GalleryRows.Clear();
+
+        foreach (var group in MonthGroups)
+        {
+            GalleryRows.Add(DesktopGalleryRowViewModel.CreateHeader(group, RebuildGalleryRows, RefreshSelectionState));
+            if (!group.IsExpanded)
+            {
+                continue;
+            }
+
+            foreach (var rowPhotos in group.Photos.Chunk(5))
+            {
+                GalleryRows.Add(DesktopGalleryRowViewModel.CreatePhotoRow(group, rowPhotos));
+            }
+        }
     }
 
     private void OnPhotosCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -438,6 +635,33 @@ public partial class MainViewModel : ObservableObject
         {
             group.RefreshSelectionState();
         }
+
+        foreach (var row in GalleryRows)
+        {
+            row.RefreshCounts();
+        }
+    }
+
+    private async Task MovePhotoViewerAsync(int delta)
+    {
+        if (ActiveViewerPhoto == null)
+        {
+            return;
+        }
+
+        var current = Photos.IndexOf(ActiveViewerPhoto);
+        var next = current + delta;
+        if (current < 0 || next < 0 || next >= Photos.Count)
+        {
+            return;
+        }
+
+        await OpenPhotoViewerAsync(Photos[next]);
+    }
+
+    private void RefreshCacheUsage()
+    {
+        CacheUsageText = $"Cache: {_imageCache.GetUsage().DisplayText}";
     }
 
     private static (DateTime SortDate, string Label) GetMonthGroupKey(DateTime createdAt)
@@ -503,6 +727,7 @@ public partial class MainViewModel : ObservableObject
             SubStatus = result.Failed > 0
                 ? string.Join("; ", result.Errors.Take(3))
                 : $"Saved to: {result.OutputSummary}";
+            LastSavedFolderPath = ResolveLastSavedFolderPath(outputFolder, result.OutputSummary);
             ProgressText = "";
             AppLog.Info(
                 $"Download completed for {description}. Success: {result.Succeeded}, Skipped: {result.Skipped}, Failed: {result.Failed}, Output: {result.OutputSummary}");
@@ -515,6 +740,24 @@ public partial class MainViewModel : ObservableObject
             ProgressText = "";
             AppLog.Warn($"Download cancelled while processing {description}.");
         }
+    }
+
+    private static string ResolveLastSavedFolderPath(string rootFolder, string outputSummary)
+    {
+        if (!string.IsNullOrWhiteSpace(outputSummary))
+        {
+            var multiFolderMarker = outputSummary.IndexOf(" (+", StringComparison.Ordinal);
+            var candidate = multiFolderMarker > 0
+                ? outputSummary[..multiFolderMarker]
+                : outputSummary;
+
+            if (!string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Directory.Exists(rootFolder) ? rootFolder : "";
     }
 }
 
@@ -530,12 +773,101 @@ public partial class PhotoViewModel : ObservableObject
 
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private BitmapImage? _thumbnail;
+    [ObservableProperty] private BitmapImage? _fullImage;
     [ObservableProperty] private bool _isLoaded;
     [ObservableProperty] private bool _isDownloaded;
 
     public string DateLabel => Photo.CreatedAt != default
         ? Photo.CreatedAt.ToString("MMM d, yyyy")
         : "";
+}
+
+public sealed partial class DesktopGalleryRowViewModel : ObservableObject
+{
+    private readonly PhotoMonthGroupViewModel? _group;
+    private readonly Action? _rebuildRows;
+    private readonly Action? _refreshCounts;
+
+    private DesktopGalleryRowViewModel(
+        bool isHeader,
+        PhotoMonthGroupViewModel group,
+        IReadOnlyCollection<PhotoViewModel> photos,
+        Action? rebuildRows,
+        Action? refreshCounts)
+    {
+        IsHeader = isHeader;
+        IsPhotoRow = !isHeader;
+        _group = group;
+        _rebuildRows = rebuildRows;
+        _refreshCounts = refreshCounts;
+        Label = group.Label;
+        Photos = new ObservableCollection<PhotoViewModel>(photos);
+    }
+
+    public bool IsHeader { get; }
+    public bool IsPhotoRow { get; }
+    public string Label { get; }
+    public ObservableCollection<PhotoViewModel> Photos { get; }
+    public int SelectedCount => _group?.SelectedCount ?? 0;
+    public int TotalCount => _group?.TotalCount ?? 0;
+    public int DownloadedCount => _group?.DownloadedCount ?? 0;
+    public string ToggleLabel => _group?.ToggleLabel ?? "";
+    public string ChevronGlyph => _group?.IsExpanded == true ? "▾" : "▸";
+
+    public static DesktopGalleryRowViewModel CreateHeader(
+        PhotoMonthGroupViewModel group,
+        Action rebuildRows,
+        Action refreshCounts)
+    {
+        return new DesktopGalleryRowViewModel(true, group, [], rebuildRows, refreshCounts);
+    }
+
+    public static DesktopGalleryRowViewModel CreatePhotoRow(
+        PhotoMonthGroupViewModel group,
+        IReadOnlyCollection<PhotoViewModel> photos)
+    {
+        return new DesktopGalleryRowViewModel(false, group, photos, null, null);
+    }
+
+    [RelayCommand]
+    public void ToggleExpanded()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        _group.IsExpanded = !_group.IsExpanded;
+        _rebuildRows?.Invoke();
+        _refreshCounts?.Invoke();
+    }
+
+    [RelayCommand]
+    public void ToggleMonthSelection()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        var target = !_group.AllSelected;
+        foreach (var photo in _group.Photos)
+        {
+            photo.IsSelected = target;
+        }
+
+        _group.RefreshSelectionState();
+        _refreshCounts?.Invoke();
+    }
+
+    public void RefreshCounts()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(DownloadedCount));
+        OnPropertyChanged(nameof(ToggleLabel));
+        OnPropertyChanged(nameof(ChevronGlyph));
+    }
 }
 
 public partial class PhotoMonthGroupViewModel : ObservableObject

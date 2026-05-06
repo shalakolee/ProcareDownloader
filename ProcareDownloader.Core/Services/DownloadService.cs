@@ -6,12 +6,17 @@ namespace ProcareDownloader.Services;
 
 public record DownloadResult(int Succeeded, int Skipped, int Failed, string OutputSummary, List<string> Errors);
 
+public interface IProcareMediaClient
+{
+    Task DownloadPhotoAsync(Photo photo, string destinationPath, CancellationToken ct = default);
+}
+
 public class DownloadService
 {
-    private readonly ProcareApiService _api;
+    private readonly IProcareMediaClient _api;
     private readonly DownloadHistoryService _history;
 
-    public DownloadService(ProcareApiService api, DownloadHistoryService history)
+    public DownloadService(IProcareMediaClient api, DownloadHistoryService history)
     {
         _api = api;
         _history = history;
