@@ -589,11 +589,118 @@ public class ProcareApiService : IProcareMediaClient
                             ?? (nameParts.FirstOrDefault() ?? ""),
                 LastName = FirstValue(source, "last_name", "lastName")
                            ?? string.Join(' ', nameParts.Skip(1)),
-                PhotoUrl = FirstValue(source, "photo_url", "photoUrl", "profile_photo_url", "profilePhotoUrl")
+                PhotoUrl = FindStudentPhotoUrl(item, source)
             });
         }
 
         return students.Where(student => !string.IsNullOrWhiteSpace(student.Id)).ToList();
+    }
+
+    private static string? FindStudentPhotoUrl(JsonNode? item, JsonNode? source)
+    {
+        var direct = FirstValue(
+            source,
+            "photo_url",
+            "photoUrl",
+            "profile_photo_url",
+            "profilePhotoUrl",
+            "profile_image_url",
+            "profileImageUrl",
+            "avatar_url",
+            "avatarUrl",
+            "image_url",
+            "imageUrl",
+            "picture_url",
+            "pictureUrl",
+            "thumbnail_url",
+            "thumbnailUrl");
+
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
+
+        direct = FirstValue(
+            item,
+            "photo_url",
+            "photoUrl",
+            "profile_photo_url",
+            "profilePhotoUrl",
+            "profile_image_url",
+            "profileImageUrl",
+            "avatar_url",
+            "avatarUrl",
+            "image_url",
+            "imageUrl",
+            "picture_url",
+            "pictureUrl",
+            "thumbnail_url",
+            "thumbnailUrl");
+
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
+
+        return FindNestedStudentImageUrl(source) ?? FindNestedStudentImageUrl(item);
+    }
+
+    private static string? FindNestedStudentImageUrl(JsonNode? node, string path = "", int depth = 0)
+    {
+        if (node == null || depth > 5)
+        {
+            return null;
+        }
+
+        if (node is JsonObject obj)
+        {
+            foreach (var property in obj)
+            {
+                var childPath = string.IsNullOrWhiteSpace(path) ? property.Key : $"{path}.{property.Key}";
+                if (property.Value is JsonValue value
+                    && value.TryGetValue<string>(out var text)
+                    && IsStudentImageUrl(childPath, text))
+                {
+                    return text;
+                }
+
+                var nested = FindNestedStudentImageUrl(property.Value, childPath, depth + 1);
+                if (!string.IsNullOrWhiteSpace(nested))
+                {
+                    return nested;
+                }
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            for (var i = 0; i < array.Count; i++)
+            {
+                var nested = FindNestedStudentImageUrl(array[i], $"{path}[{i}]", depth + 1);
+                if (!string.IsNullOrWhiteSpace(nested))
+                {
+                    return nested;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsStudentImageUrl(string path, string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out _)
+            || !value.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var lowerPath = path.ToLowerInvariant();
+        return lowerPath.Contains("avatar")
+               || lowerPath.Contains("profile")
+               || lowerPath.Contains("photo")
+               || lowerPath.Contains("image")
+               || lowerPath.Contains("picture")
+               || lowerPath.Contains("thumbnail");
     }
 
     private static List<Photo> ParsePhotos(JsonNode? node, string context)

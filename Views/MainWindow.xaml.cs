@@ -46,6 +46,7 @@ public partial class MainWindow : Window
 
         DataContext = _vm;
         Loaded += OnLoaded;
+        KeyDown += OnWindowKeyDown;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -228,12 +229,42 @@ public partial class MainWindow : Window
         await Dispatcher.InvokeAsync(async () => { await _vm.OnTokenCapturedAsync(token); });
     }
 
-    private void Photo_Click(object sender, MouseButtonEventArgs e)
+    private async void Photo_Click(object sender, MouseButtonEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is PhotoViewModel photo)
         {
+            if (e.ClickCount > 1)
+            {
+                await _vm.OpenPhotoViewerAsync(photo);
+                return;
+            }
+
             photo.IsSelected = !photo.IsSelected;
             _vm.NotifySelectionChanged();
+        }
+    }
+
+    private async void OnWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (!_vm.IsPhotoViewerOpen)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            _vm.ClosePhotoViewerCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Left)
+        {
+            await _vm.ShowPreviousPhotoAsync();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Right)
+        {
+            await _vm.ShowNextPhotoAsync();
+            e.Handled = true;
         }
     }
 

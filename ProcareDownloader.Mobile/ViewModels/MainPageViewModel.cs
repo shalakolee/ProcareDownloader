@@ -73,9 +73,11 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty] private string _photoViewerSubtitle = "";
     [ObservableProperty] private MobilePhotoItemViewModel? _activeViewerPhoto;
     [ObservableProperty] private bool _isThumbnailPrefetching;
+    [ObservableProperty] private string _cacheUsageText = "Cache: checking...";
 
     public ObservableCollection<Student> Students { get; } = [];
     public ObservableCollection<MobilePhotoMonthGroupViewModel> MonthGroups { get; } = [];
+    public ObservableCollection<MobileGalleryRowViewModel> GalleryRows { get; } = [];
     public ObservableCollection<DownloadLayoutOption> DownloadLayoutOptions { get; } = [];
 
     public bool IsLoginVisible => State == MobileAppState.Login;
@@ -84,6 +86,12 @@ public partial class MainPageViewModel : ObservableObject
     public bool IsGalleryVisible => State == MobileAppState.Gallery || State == MobileAppState.Downloading;
     public bool IsDownloading => State == MobileAppState.Downloading;
     public bool IsThumbnailPrefetchOverlayVisible => IsGalleryVisible && IsThumbnailPrefetching;
+    public string HeaderTitle => IsGalleryVisible && SelectedStudent != null
+        ? SelectedStudent.FullName
+        : "Procare Photo Downloader";
+    public string HeaderSubtitle => IsGalleryVisible
+        ? $"{TotalCount} photos"
+        : StatusMessage;
 
     public int TotalCount => MonthGroups.SelectMany(group => group.Photos).Count();
     public int SelectedCount => MonthGroups.SelectMany(group => group.Photos).Count(photo => photo.IsSelected);
@@ -96,6 +104,16 @@ public partial class MainPageViewModel : ObservableObject
     public string DownloadLayoutPreview => MobileDownloadPathHelper.BuildLayoutPreviewPath(
         SelectedDownloadLayout?.Layout ?? DownloadLayout.StudentYearMonth,
         SelectedStudent?.FullName);
+    public bool CanShowPreviousPhoto => ActiveViewerPhoto != null && GetAllPhotos().IndexOf(ActiveViewerPhoto) > 0;
+    public bool CanShowNextPhoto
+    {
+        get
+        {
+            var photos = GetAllPhotos();
+            var index = ActiveViewerPhoto == null ? -1 : photos.IndexOf(ActiveViewerPhoto);
+            return index >= 0 && index < photos.Count - 1;
+        }
+    }
 
     partial void OnStateChanged(MobileAppState value)
     {
@@ -105,11 +123,20 @@ public partial class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(IsGalleryVisible));
         OnPropertyChanged(nameof(IsDownloading));
         OnPropertyChanged(nameof(IsThumbnailPrefetchOverlayVisible));
+        OnPropertyChanged(nameof(HeaderTitle));
+        OnPropertyChanged(nameof(HeaderSubtitle));
+    }
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        OnPropertyChanged(nameof(HeaderSubtitle));
     }
 
     partial void OnSelectedStudentChanged(Student? value)
     {
         OnPropertyChanged(nameof(DownloadLayoutPreview));
+        OnPropertyChanged(nameof(HeaderTitle));
+        OnPropertyChanged(nameof(HeaderSubtitle));
     }
 
     partial void OnIsThumbnailPrefetchingChanged(bool value)
@@ -150,6 +177,8 @@ public partial class MainPageViewModel : ObservableObject
         }
 
         ActiveViewerPhoto = photo;
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
         PhotoViewerTitle = photo.Title;
         PhotoViewerSubtitle = photo.DateLabel;
         PhotoViewerSource = photo.FullImageSource ?? photo.ThumbnailSource;
@@ -203,6 +232,35 @@ public partial class MainPageViewModel : ObservableObject
         PhotoViewerSource = null;
         PhotoViewerTitle = "";
         PhotoViewerSubtitle = "";
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
+    }
+
+    [RelayCommand]
+    public async Task ShowPreviousPhotoAsync()
+    {
+        await MovePhotoViewerAsync(-1);
+    }
+
+    [RelayCommand]
+    public async Task ShowNextPhotoAsync()
+    {
+        await MovePhotoViewerAsync(1);
+    }
+
+    [RelayCommand]
+    public async Task ClearCacheAsync()
+    {
+        await _imageCache.ClearAsync();
+        foreach (var photo in MonthGroups.SelectMany(group => group.Photos))
+        {
+            photo.ThumbnailSource = null;
+            photo.FullImageSource = null;
+        }
+
+        PhotoViewerSource = ActiveViewerPhoto?.ThumbnailSource;
+        RefreshCacheUsage();
+        WarmInitialThumbnails(_cts?.Token ?? CancellationToken.None);
     }
 
     [RelayCommand]
@@ -221,6 +279,7 @@ public partial class MainPageViewModel : ObservableObject
     public void BackToStudents()
     {
         MonthGroups.Clear();
+        GalleryRows.Clear();
         SelectedStudent = null;
         ClosePhotoViewer();
         IsThumbnailPrefetching = false;
@@ -260,6 +319,7 @@ public partial class MainPageViewModel : ObservableObject
         _api.ClearCredentials();
         Students.Clear();
         MonthGroups.Clear();
+        GalleryRows.Clear();
         IsThumbnailPrefetching = false;
         SelectedStudent = null;
         ClosePhotoViewer();
@@ -369,10 +429,16 @@ public partial class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectAllButtonText));
         OnPropertyChanged(nameof(UnsavedDownloadButtonText));
         OnPropertyChanged(nameof(DownloadLayoutPreview));
+        OnPropertyChanged(nameof(HeaderSubtitle));
 
         foreach (var group in MonthGroups)
         {
             group.RefreshCounts();
+        }
+
+        foreach (var row in GalleryRows)
+        {
+            row.RefreshCounts();
         }
     }
 
@@ -390,6 +456,7 @@ public partial class MainPageViewModel : ObservableObject
         ProgressText = "";
         IsThumbnailPrefetching = false;
         MonthGroups.Clear();
+        GalleryRows.Clear();
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
@@ -413,7 +480,7 @@ public partial class MainPageViewModel : ObservableObject
 
                 if (cached.IsFresh)
                 {
-                    await PrefetchAllMonthsThenCollapseAsync(token);
+                    WarmInitialThumbnails(token);
                     return;
                 }
             }
@@ -436,7 +503,7 @@ public partial class MainPageViewModel : ObservableObject
             StatusMessage = $"{studentName} — {TotalCount} photos";
             SubStatus = $"{DownloadedCount} already downloaded";
             RefreshCounts();
-            await PrefetchAllMonthsThenCollapseAsync(token);
+            WarmInitialThumbnails(token);
         }
         catch (OperationCanceledException)
         {
@@ -449,7 +516,7 @@ public partial class MainPageViewModel : ObservableObject
                 StatusMessage = $"{studentName} — {TotalCount} photos";
                 SubStatus = $"Using cached photos. Refresh failed: {ex.Message}";
                 AppLog.Error($"Mobile photo refresh failed for student {studentId}; cache kept.", ex);
-                await PrefetchAllMonthsThenCollapseAsync(token);
+                WarmInitialThumbnails(token);
                 return;
             }
 
@@ -467,6 +534,7 @@ public partial class MainPageViewModel : ObservableObject
     private void ApplyPhotosToGallery(IReadOnlyCollection<Photo> photos)
     {
         MonthGroups.Clear();
+        GalleryRows.Clear();
 
         var groups = photos
             .OrderByDescending(photo => photo.CreatedAt)
@@ -488,6 +556,9 @@ public partial class MainPageViewModel : ObservableObject
         {
             MonthGroups.Add(group);
         }
+
+        RebuildGalleryRows();
+        RefreshCacheUsage();
     }
 
     private async Task DownloadPhotosAsync(List<MobilePhotoItemViewModel> photos, string emptyMessage)
@@ -596,10 +667,75 @@ public partial class MainPageViewModel : ObservableObject
         try
         {
             await Task.WhenAll(tasks);
+            RefreshCacheUsage();
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private void WarmInitialThumbnails(CancellationToken token)
+    {
+        var firstPhotos = GalleryRows
+            .Where(row => row.IsPhotoRow)
+            .Take(4)
+            .SelectMany(row => row.Photos)
+            .ToList();
+
+        if (firstPhotos.Count == 0)
+        {
+            return;
+        }
+
+        _ = WarmVisibleThumbnailsAsync(firstPhotos);
+    }
+
+    private void RebuildGalleryRows()
+    {
+        GalleryRows.Clear();
+
+        foreach (var group in MonthGroups)
+        {
+            GalleryRows.Add(MobileGalleryRowViewModel.CreateHeader(group, RebuildGalleryRows, RefreshCounts));
+            if (!group.IsExpanded)
+            {
+                continue;
+            }
+
+            foreach (var rowPhotos in group.Photos.Chunk(8))
+            {
+                GalleryRows.Add(MobileGalleryRowViewModel.CreatePhotoRow(group, rowPhotos));
+            }
+        }
+    }
+
+    private List<MobilePhotoItemViewModel> GetAllPhotos()
+    {
+        return MonthGroups.SelectMany(group => group.Photos).ToList();
+    }
+
+    private async Task MovePhotoViewerAsync(int delta)
+    {
+        if (ActiveViewerPhoto == null)
+        {
+            return;
+        }
+
+        var photos = GetAllPhotos();
+        var currentIndex = photos.IndexOf(ActiveViewerPhoto);
+        var nextIndex = currentIndex + delta;
+        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= photos.Count)
+        {
+            return;
+        }
+
+        await OpenPhotoViewerAsync(photos[nextIndex]);
+    }
+
+    private void RefreshCacheUsage()
+    {
+        var usage = _imageCache.GetUsage();
+        CacheUsageText = $"Cache: {usage.DisplayText}";
     }
 
     private async Task PrefetchAllMonthsThenCollapseAsync(CancellationToken token)
@@ -708,16 +844,94 @@ public partial class MobilePhotoItemViewModel : ObservableObject
     }
 }
 
+public sealed partial class MobileGalleryRowViewModel : ObservableObject
+{
+    private readonly MobilePhotoMonthGroupViewModel? _group;
+    private readonly Action? _rebuildRows;
+    private readonly Action? _refreshCounts;
+
+    private MobileGalleryRowViewModel(
+        bool isHeader,
+        MobilePhotoMonthGroupViewModel group,
+        IReadOnlyCollection<MobilePhotoItemViewModel> photos,
+        Action? rebuildRows,
+        Action? refreshCounts)
+    {
+        IsHeader = isHeader;
+        IsPhotoRow = !isHeader;
+        _group = group;
+        _rebuildRows = rebuildRows;
+        _refreshCounts = refreshCounts;
+        Label = group.Label;
+        Photos = new ObservableCollection<MobilePhotoItemViewModel>(photos);
+    }
+
+    public bool IsHeader { get; }
+    public bool IsPhotoRow { get; }
+    public string Label { get; }
+    public ObservableCollection<MobilePhotoItemViewModel> Photos { get; }
+    public int TotalCount => _group?.TotalCount ?? 0;
+    public int SelectedCount => _group?.SelectedCount ?? 0;
+    public int DownloadedCount => _group?.DownloadedCount ?? 0;
+    public string ChevronGlyph => _group?.ChevronGlyph ?? "";
+    public string SelectMonthText => _group?.SelectMonthText ?? "";
+
+    public static MobileGalleryRowViewModel CreateHeader(
+        MobilePhotoMonthGroupViewModel group,
+        Action rebuildRows,
+        Action refreshCounts)
+    {
+        return new MobileGalleryRowViewModel(true, group, [], rebuildRows, refreshCounts);
+    }
+
+    public static MobileGalleryRowViewModel CreatePhotoRow(
+        MobilePhotoMonthGroupViewModel group,
+        IReadOnlyCollection<MobilePhotoItemViewModel> photos)
+    {
+        return new MobileGalleryRowViewModel(false, group, photos, null, null);
+    }
+
+    [RelayCommand]
+    public void ToggleExpanded()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        _group.IsExpanded = !_group.IsExpanded;
+        _rebuildRows?.Invoke();
+        _refreshCounts?.Invoke();
+    }
+
+    [RelayCommand]
+    public void ToggleMonthSelection()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        _group.ToggleMonthSelectionCommand.Execute(null);
+        RefreshCounts();
+        _refreshCounts?.Invoke();
+    }
+
+    public void RefreshCounts()
+    {
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(DownloadedCount));
+        OnPropertyChanged(nameof(ChevronGlyph));
+        OnPropertyChanged(nameof(SelectMonthText));
+    }
+}
+
 public partial class MobilePhotoMonthGroupViewModel : ObservableObject
 {
     private readonly Action _onChanged;
     private readonly Func<IReadOnlyCollection<MobilePhotoItemViewModel>, Task>? _onExpandedAsync;
-    private const int InitialMaterializeCount = 24;
-    private const int MaterializeBatchSize = 12;
-    private CancellationTokenSource? _materializeCts;
-    private Task? _materializeTask;
     private bool _isMaterialized;
-    private bool _isMaterializing;
 
     public MobilePhotoMonthGroupViewModel(
         string label,
@@ -760,14 +974,9 @@ public partial class MobilePhotoMonthGroupViewModel : ObservableObject
         if (value)
         {
             EnsureVisiblePhotosMaterialized();
-            if (_isMaterialized)
-            {
-                _ = NotifyExpandedAsync();
-            }
+            _ = NotifyExpandedAsync();
             return;
         }
-
-        _materializeCts?.Cancel();
     }
 
     [RelayCommand]
@@ -802,64 +1011,26 @@ public partial class MobilePhotoMonthGroupViewModel : ObservableObject
 
     private void EnsureVisiblePhotosMaterialized()
     {
-        if (_isMaterialized || _isMaterializing)
+        if (_isMaterialized)
         {
             return;
         }
 
-        _materializeTask = MaterializeVisiblePhotosAsync();
+        foreach (var photo in Photos)
+        {
+            VisiblePhotos.Add(photo);
+        }
+
+        _isMaterialized = true;
     }
 
     public Task EnsureMaterializedAsync()
     {
         EnsureVisiblePhotosMaterialized();
-        return _materializeTask ?? Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
-    private async Task MaterializeVisiblePhotosAsync()
-    {
-        _materializeCts?.Cancel();
-        var cts = new CancellationTokenSource();
-        _materializeCts = cts;
-        var token = cts.Token;
-        _isMaterializing = true;
-
-        try
-        {
-            var added = 0;
-            for (var index = VisiblePhotos.Count; index < Photos.Count; index++)
-            {
-                token.ThrowIfCancellationRequested();
-                VisiblePhotos.Add(Photos[index]);
-                added++;
-
-                if (VisiblePhotos.Count == InitialMaterializeCount && IsExpanded)
-                {
-                    await NotifyExpandedAsync();
-                }
-
-                if (added % MaterializeBatchSize == 0)
-                {
-                    await Task.Delay(1, token);
-                }
-            }
-
-            _isMaterialized = VisiblePhotos.Count == Photos.Count;
-            if (_isMaterialized && IsExpanded)
-            {
-                await NotifyExpandedAsync();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            _isMaterializing = false;
-        }
-    }
-
-    private async Task NotifyExpandedAsync()
+    public async Task NotifyExpandedAsync()
     {
         if (_onExpandedAsync == null || VisiblePhotos.Count == 0)
         {

@@ -73,10 +73,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _progressText = "";
     [ObservableProperty] private DownloadLayoutOption? _selectedDownloadLayout;
     [ObservableProperty] private string _lastSavedFolderPath = "";
+    [ObservableProperty] private bool _isPhotoViewerOpen;
+    [ObservableProperty] private bool _isPhotoViewerLoading;
+    [ObservableProperty] private BitmapImage? _photoViewerImage;
+    [ObservableProperty] private string _photoViewerTitle = "";
+    [ObservableProperty] private string _photoViewerSubtitle = "";
+    [ObservableProperty] private PhotoViewModel? _activeViewerPhoto;
+    [ObservableProperty] private string _cacheUsageText = "Cache: checking...";
 
     public ObservableCollection<Student> Students { get; } = [];
     public ObservableCollection<PhotoViewModel> Photos { get; } = [];
     public ObservableCollection<PhotoMonthGroupViewModel> MonthGroups { get; } = [];
+    public ObservableCollection<DesktopGalleryRowViewModel> GalleryRows { get; } = [];
     public ObservableCollection<DownloadLayoutOption> DownloadLayoutOptions { get; } = [];
 
     public int SelectedCount => Photos.Count(photo => photo.IsSelected);
@@ -91,6 +99,8 @@ public partial class MainViewModel : ObservableObject
         "Chosen folder",
         SelectedDownloadLayout?.Layout ?? DownloadLayout.StudentYearMonth,
         SelectedStudent?.FullName);
+    public bool CanShowPreviousPhoto => ActiveViewerPhoto != null && Photos.IndexOf(ActiveViewerPhoto) > 0;
+    public bool CanShowNextPhoto => ActiveViewerPhoto != null && Photos.IndexOf(ActiveViewerPhoto) >= 0 && Photos.IndexOf(ActiveViewerPhoto) < Photos.Count - 1;
 
     partial void OnSelectedDownloadLayoutChanged(DownloadLayoutOption? value)
     {
@@ -124,6 +134,22 @@ public partial class MainViewModel : ObservableObject
     public void CloseSettings()
     {
         IsSettingsOpen = false;
+    }
+
+    [RelayCommand]
+    public async Task ClearCacheAsync()
+    {
+        await _imageCache.ClearAsync();
+        foreach (var photo in Photos)
+        {
+            photo.Thumbnail = null;
+            photo.IsLoaded = false;
+            photo.FullImage = null;
+        }
+
+        PhotoViewerImage = ActiveViewerPhoto?.Thumbnail;
+        RefreshCacheUsage();
+        _ = LoadThumbnailsAsync(_cts?.Token ?? CancellationToken.None);
     }
 
     [RelayCommand]
@@ -291,6 +317,8 @@ public partial class MainViewModel : ObservableObject
                 viewModel.IsLoaded = true;
             }
 
+            viewModel.FullImage = _imageCache.GetFullImage(photo);
+
             Photos.Add(viewModel);
         }
 
@@ -364,6 +392,84 @@ public partial class MainViewModel : ObservableObject
     public void NotifySelectionChanged()
     {
         RefreshSelectionState();
+    }
+
+    public async Task OpenPhotoViewerAsync(PhotoViewModel? photo)
+    {
+        if (photo == null)
+        {
+            return;
+        }
+
+        ActiveViewerPhoto = photo;
+        PhotoViewerTitle = string.IsNullOrWhiteSpace(photo.Photo.Caption) ? "Photo" : photo.Photo.Caption!;
+        PhotoViewerSubtitle = photo.DateLabel;
+        PhotoViewerImage = photo.FullImage ?? photo.Thumbnail;
+        IsPhotoViewerOpen = true;
+        IsPhotoViewerLoading = photo.FullImage == null;
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
+
+        if (photo.FullImage != null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bitmap = await _imageCache.EnsureFullImageCachedAsync(photo.Photo, _cts?.Token ?? CancellationToken.None);
+            if (bitmap == null)
+            {
+                return;
+            }
+
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                photo.FullImage = bitmap;
+                if (ActiveViewerPhoto == photo)
+                {
+                    PhotoViewerImage = bitmap;
+                }
+
+                IsPhotoViewerLoading = false;
+                RefreshCacheUsage();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            IsPhotoViewerLoading = false;
+        }
+        catch (Exception ex)
+        {
+            IsPhotoViewerLoading = false;
+            SubStatus = $"Could not open full-size photo: {ex.Message}";
+            AppLog.Error($"Desktop full-size photo load failed for {photo.Photo.Id}.", ex);
+        }
+    }
+
+    [RelayCommand]
+    public void ClosePhotoViewer()
+    {
+        IsPhotoViewerOpen = false;
+        IsPhotoViewerLoading = false;
+        ActiveViewerPhoto = null;
+        PhotoViewerImage = null;
+        PhotoViewerTitle = "";
+        PhotoViewerSubtitle = "";
+        OnPropertyChanged(nameof(CanShowPreviousPhoto));
+        OnPropertyChanged(nameof(CanShowNextPhoto));
+    }
+
+    [RelayCommand]
+    public async Task ShowPreviousPhotoAsync()
+    {
+        await MovePhotoViewerAsync(-1);
+    }
+
+    [RelayCommand]
+    public async Task ShowNextPhotoAsync()
+    {
+        await MovePhotoViewerAsync(1);
     }
 
     public void PrepareForLogin(string message)
@@ -446,6 +552,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         MonthGroups.Clear();
+        GalleryRows.Clear();
+        ClosePhotoViewer();
         RefreshSelectionState();
     }
 
@@ -473,7 +581,28 @@ public partial class MainViewModel : ObservableObject
             MonthGroups.Add(group);
         }
 
+        RebuildGalleryRows();
+        RefreshCacheUsage();
         RefreshSelectionState();
+    }
+
+    private void RebuildGalleryRows()
+    {
+        GalleryRows.Clear();
+
+        foreach (var group in MonthGroups)
+        {
+            GalleryRows.Add(DesktopGalleryRowViewModel.CreateHeader(group, RebuildGalleryRows, RefreshSelectionState));
+            if (!group.IsExpanded)
+            {
+                continue;
+            }
+
+            foreach (var rowPhotos in group.Photos.Chunk(5))
+            {
+                GalleryRows.Add(DesktopGalleryRowViewModel.CreatePhotoRow(group, rowPhotos));
+            }
+        }
     }
 
     private void OnPhotosCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -506,6 +635,33 @@ public partial class MainViewModel : ObservableObject
         {
             group.RefreshSelectionState();
         }
+
+        foreach (var row in GalleryRows)
+        {
+            row.RefreshCounts();
+        }
+    }
+
+    private async Task MovePhotoViewerAsync(int delta)
+    {
+        if (ActiveViewerPhoto == null)
+        {
+            return;
+        }
+
+        var current = Photos.IndexOf(ActiveViewerPhoto);
+        var next = current + delta;
+        if (current < 0 || next < 0 || next >= Photos.Count)
+        {
+            return;
+        }
+
+        await OpenPhotoViewerAsync(Photos[next]);
+    }
+
+    private void RefreshCacheUsage()
+    {
+        CacheUsageText = $"Cache: {_imageCache.GetUsage().DisplayText}";
     }
 
     private static (DateTime SortDate, string Label) GetMonthGroupKey(DateTime createdAt)
@@ -617,12 +773,101 @@ public partial class PhotoViewModel : ObservableObject
 
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private BitmapImage? _thumbnail;
+    [ObservableProperty] private BitmapImage? _fullImage;
     [ObservableProperty] private bool _isLoaded;
     [ObservableProperty] private bool _isDownloaded;
 
     public string DateLabel => Photo.CreatedAt != default
         ? Photo.CreatedAt.ToString("MMM d, yyyy")
         : "";
+}
+
+public sealed partial class DesktopGalleryRowViewModel : ObservableObject
+{
+    private readonly PhotoMonthGroupViewModel? _group;
+    private readonly Action? _rebuildRows;
+    private readonly Action? _refreshCounts;
+
+    private DesktopGalleryRowViewModel(
+        bool isHeader,
+        PhotoMonthGroupViewModel group,
+        IReadOnlyCollection<PhotoViewModel> photos,
+        Action? rebuildRows,
+        Action? refreshCounts)
+    {
+        IsHeader = isHeader;
+        IsPhotoRow = !isHeader;
+        _group = group;
+        _rebuildRows = rebuildRows;
+        _refreshCounts = refreshCounts;
+        Label = group.Label;
+        Photos = new ObservableCollection<PhotoViewModel>(photos);
+    }
+
+    public bool IsHeader { get; }
+    public bool IsPhotoRow { get; }
+    public string Label { get; }
+    public ObservableCollection<PhotoViewModel> Photos { get; }
+    public int SelectedCount => _group?.SelectedCount ?? 0;
+    public int TotalCount => _group?.TotalCount ?? 0;
+    public int DownloadedCount => _group?.DownloadedCount ?? 0;
+    public string ToggleLabel => _group?.ToggleLabel ?? "";
+    public string ChevronGlyph => _group?.IsExpanded == true ? "▾" : "▸";
+
+    public static DesktopGalleryRowViewModel CreateHeader(
+        PhotoMonthGroupViewModel group,
+        Action rebuildRows,
+        Action refreshCounts)
+    {
+        return new DesktopGalleryRowViewModel(true, group, [], rebuildRows, refreshCounts);
+    }
+
+    public static DesktopGalleryRowViewModel CreatePhotoRow(
+        PhotoMonthGroupViewModel group,
+        IReadOnlyCollection<PhotoViewModel> photos)
+    {
+        return new DesktopGalleryRowViewModel(false, group, photos, null, null);
+    }
+
+    [RelayCommand]
+    public void ToggleExpanded()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        _group.IsExpanded = !_group.IsExpanded;
+        _rebuildRows?.Invoke();
+        _refreshCounts?.Invoke();
+    }
+
+    [RelayCommand]
+    public void ToggleMonthSelection()
+    {
+        if (_group == null)
+        {
+            return;
+        }
+
+        var target = !_group.AllSelected;
+        foreach (var photo in _group.Photos)
+        {
+            photo.IsSelected = target;
+        }
+
+        _group.RefreshSelectionState();
+        _refreshCounts?.Invoke();
+    }
+
+    public void RefreshCounts()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(DownloadedCount));
+        OnPropertyChanged(nameof(ToggleLabel));
+        OnPropertyChanged(nameof(ChevronGlyph));
+    }
 }
 
 public partial class PhotoMonthGroupViewModel : ObservableObject

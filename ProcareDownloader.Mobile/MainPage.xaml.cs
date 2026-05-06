@@ -116,8 +116,8 @@ public partial class MainPage : ContentPage
         if (LoginWebView.Handler?.PlatformView is AndroidWebView nativeView)
         {
             var settings = nativeView.Settings;
-            settings.UseWideViewPort = true;
-            settings.LoadWithOverviewMode = true;
+            settings.UseWideViewPort = false;
+            settings.LoadWithOverviewMode = false;
             settings.BuiltInZoomControls = true;
             settings.DisplayZoomControls = false;
             settings.SetSupportZoom(true);
@@ -164,6 +164,50 @@ public partial class MainPage : ContentPage
                     for (const element of document.querySelectorAll('img, iframe, video, canvas')) {
                         element.style.maxWidth = '100%';
                         element.style.height = 'auto';
+                    }
+
+                    const styleId = 'procare-downloader-mobile-fit';
+                    let style = document.getElementById(styleId);
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = styleId;
+                        document.head.appendChild(style);
+                    }
+
+                    style.textContent = `
+                        html, body {
+                            width: 100% !important;
+                            max-width: 100vw !important;
+                            min-width: 0 !important;
+                            overflow-x: hidden !important;
+                        }
+
+                        body * {
+                            box-sizing: border-box !important;
+                        }
+
+                        main, section, article, form,
+                        div[class*="container"], div[class*="content"], div[class*="form"],
+                        div[class*="login"], div[class*="auth"], div[class*="panel"] {
+                            max-width: calc(100vw - 24px) !important;
+                            min-width: 0 !important;
+                        }
+
+                        input, textarea, select, button {
+                            max-width: 100% !important;
+                        }
+                    `;
+
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                    if (viewportWidth > 0) {
+                        const maxContentWidth = Math.max(280, viewportWidth - 24);
+                        for (const element of document.querySelectorAll('main, section, article, form, div')) {
+                            const rect = element.getBoundingClientRect();
+                            if (rect.width > viewportWidth || rect.right > viewportWidth) {
+                                element.style.maxWidth = `${maxContentWidth}px`;
+                                element.style.minWidth = '0';
+                            }
+                        }
                     }
 
                     return 'ok';

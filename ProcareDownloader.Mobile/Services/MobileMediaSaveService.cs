@@ -76,7 +76,7 @@ public sealed class MobileMediaSaveService
 
         try
         {
-            if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Q)
+            if (OperatingSystem.IsAndroidVersionAtLeast(29))
             {
                 SetPendingInsertValues(contentValues, relativePath);
             }
@@ -97,7 +97,7 @@ public sealed class MobileMediaSaveService
                 await outputStream.FlushAsync(ct);
             }
 
-            if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Q)
+            if (OperatingSystem.IsAndroidVersionAtLeast(29))
             {
                 resolver.Update(itemUri, CreatePublishValues(), null, null);
             }
@@ -120,26 +120,28 @@ public sealed class MobileMediaSaveService
     private static Android.Net.Uri GetCollectionUri(string fileName)
     {
         var isVideo = IsVideo(fileName);
-        if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Q)
+        if (OperatingSystem.IsAndroidVersionAtLeast(29))
         {
             return GetPrimaryCollectionUri(isVideo);
         }
 
         return isVideo
             ? MediaStore.Video.Media.ExternalContentUri
-            : MediaStore.Images.Media.ExternalContentUri;
+              ?? throw new InvalidOperationException("Android video media collection is not available.")
+            : MediaStore.Images.Media.ExternalContentUri
+              ?? throw new InvalidOperationException("Android image media collection is not available.");
     }
 
     private static string BuildQuerySelection()
     {
-        return Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Q
+        return OperatingSystem.IsAndroidVersionAtLeast(29)
             ? BuildScopedStorageQuerySelection()
             : $"{MediaStore.IMediaColumns.Data} = ?";
     }
 
     private static string[] BuildQueryArguments(string relativeFolderPath, string fileName)
     {
-        return Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.Q
+        return OperatingSystem.IsAndroidVersionAtLeast(29)
             ? [fileName, BuildAndroidRelativePath(relativeFolderPath)]
             : [Path.Combine(ResolveLegacyAndroidFolderPath(relativeFolderPath), fileName)];
     }
@@ -166,7 +168,9 @@ public sealed class MobileMediaSaveService
     {
         return isVideo
             ? MediaStore.Video.Media.GetContentUri(MediaStore.VolumeExternalPrimary)
-            : MediaStore.Images.Media.GetContentUri(MediaStore.VolumeExternalPrimary);
+              ?? throw new InvalidOperationException("Android primary video media collection is not available.")
+            : MediaStore.Images.Media.GetContentUri(MediaStore.VolumeExternalPrimary)
+              ?? throw new InvalidOperationException("Android primary image media collection is not available.");
     }
 
     [SupportedOSPlatform("android29.0")]

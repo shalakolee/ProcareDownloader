@@ -6,6 +6,8 @@ namespace ProcareDownloader.Mobile.Services;
 
 public sealed class MobileImageCacheService
 {
+    private const long ThumbnailCacheLimitBytes = 512L * 1024 * 1024;
+    private const long FullImageCacheLimitBytes = 1024L * 1024 * 1024;
     private readonly MobileProcareApiService _api;
     private readonly SemaphoreSlim _thumbnailSemaphore = new(4);
     private readonly SemaphoreSlim _fullImageSemaphore = new(2);
@@ -49,6 +51,7 @@ public sealed class MobileImageCacheService
             var bytes = await DownloadThumbnailBytesWithFallbackAsync(photo, primaryUrl, ct);
             EnsureImagePayload(bytes, photo.Id, "thumbnail");
             await WriteAtomicAsync(path, bytes, ct);
+            PruneThumbnailCache();
             return path;
         }
         finally
@@ -78,12 +81,24 @@ public sealed class MobileImageCacheService
             var bytes = await _api.GetMediaBytesAsync(photo.OriginalUrl, ct);
             EnsureImagePayload(bytes, photo.Id, "full");
             await WriteAtomicAsync(path, bytes, ct);
+            PruneFullImageCache();
             return path;
         }
         finally
         {
             _fullImageSemaphore.Release();
         }
+    }
+
+    public CacheUsageInfo GetUsage()
+    {
+        return CachePruner.GetUsage(BuildCacheRoot());
+    }
+
+    public Task ClearAsync()
+    {
+        CachePruner.Clear(BuildCacheRoot());
+        return Task.CompletedTask;
     }
 
     private string? GetExistingThumbnailPath(Photo photo)
@@ -110,13 +125,33 @@ public sealed class MobileImageCacheService
 
     private static string BuildPath(string bucket, Photo photo, bool preferOriginalUrl)
     {
-        var root = Path.Combine(FileSystem.Current.CacheDirectory, "photo-cache", bucket);
+        var root = Path.Combine(BuildCacheRoot(), bucket);
         var sourceUrl = preferOriginalUrl || string.IsNullOrWhiteSpace(photo.ThumbnailUrl)
             ? photo.OriginalUrl
             : photo.ThumbnailUrl;
         var extension = GetExtension(sourceUrl);
         var safeId = SanitizeSegment(string.IsNullOrWhiteSpace(photo.Id) ? Guid.NewGuid().ToString("N") : photo.Id);
         return Path.Combine(root, $"{safeId}{extension}");
+    }
+
+    private static string BuildCacheRoot()
+    {
+        return Path.Combine(FileSystem.Current.CacheDirectory, "photo-cache");
+    }
+
+    private static string BuildBucketRoot(string bucket)
+    {
+        return Path.Combine(BuildCacheRoot(), bucket);
+    }
+
+    private static void PruneThumbnailCache()
+    {
+        CachePruner.PruneByLastAccess(BuildBucketRoot("thumbs"), ThumbnailCacheLimitBytes);
+    }
+
+    private static void PruneFullImageCache()
+    {
+        CachePruner.PruneByLastAccess(BuildBucketRoot("full"), FullImageCacheLimitBytes);
     }
 
     private static string SanitizeSegment(string value)

@@ -17,6 +17,8 @@ public class Student
     public string? PhotoUrl { get; set; }
 
     public string FullName => $"{FirstName} {LastName}".Trim();
+    public bool HasPhotoUrl => !string.IsNullOrWhiteSpace(PhotoUrl);
+    public bool HasNoPhotoUrl => !HasPhotoUrl;
 }
 
 public class Photo
