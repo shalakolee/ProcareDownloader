@@ -13,6 +13,7 @@ public class MobileProcareApiService : IProcareMediaClient
     private const string ParentActivitiesPath = "/parent/activities";
     private const string ParentDailyActivitiesPath = "/parent/daily_activities";
     private const string BrowserAuthKey = "__procareDownloaderAuth";
+    private const int MaxPhotoPages = 500;
 
     private readonly ProcareApiClient _httpApi;
     private Func<string, Task<string>>? _evaluateJavaScriptAsync;
@@ -67,7 +68,8 @@ public class MobileProcareApiService : IProcareMediaClient
     public async Task<List<Photo>> GetPhotosAsync(
         string studentId,
         IProgress<(int loaded, int total)>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<(IReadOnlyList<Photo> photos, int loaded, int total)>? pageProgress = null)
     {
         await TrySyncBrowserCredentialsAsync();
 
@@ -76,18 +78,56 @@ public class MobileProcareApiService : IProcareMediaClient
             var browserPhotos = new List<Photo>();
             var browserPage = 1;
             var browserTotal = 0;
+            var seenPhotoIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             while (!ct.IsCancellationRequested)
             {
+                if (browserPage > MaxPhotoPages)
+                {
+                    AppLog.Warn($"Browser photo pagination reached conservative page limit ({MaxPhotoPages}) for student {studentId}. Stopping to avoid infinite loops.");
+                    var filteredBrowserPhotos = FilterPhotosForStudent(studentId, browserPhotos);
+                    progress?.Report((filteredBrowserPhotos.Count, filteredBrowserPhotos.Count));
+                    AppLog.Info(
+                        $"Loaded {filteredBrowserPhotos.Count} photos for student {studentId} from mobile browser session.");
+                    return filteredBrowserPhotos;
+                }
+
                 var pageResult = await GetPhotosPageFromBrowserAsync(studentId, browserPage, ct);
                 if (!pageResult.Success)
                 {
                     break;
                 }
 
-                browserPhotos.AddRange(pageResult.Photos);
+                var newPhotosOnPage = new List<Photo>();
+                foreach (var photo in pageResult.Photos)
+                {
+                    if (!string.IsNullOrWhiteSpace(photo.Id) && seenPhotoIds.Add(photo.Id))
+                    {
+                        newPhotosOnPage.Add(photo);
+                    }
+                }
+
+                browserPhotos.AddRange(newPhotosOnPage);
                 browserTotal = pageResult.Total > 0 ? pageResult.Total : browserTotal;
-                progress?.Report((browserPhotos.Count, browserTotal > 0 ? browserTotal : browserPhotos.Count));
+
+                var currentFilteredBrowserPhotos = FilterPhotosForStudent(studentId, browserPhotos);
+                var filteredNewPhotosOnPage = FilterPhotosForStudent(studentId, newPhotosOnPage);
+                var progressTotal = browserTotal > 0 ? browserTotal : currentFilteredBrowserPhotos.Count;
+                progress?.Report((currentFilteredBrowserPhotos.Count, progressTotal));
+                if (filteredNewPhotosOnPage.Count > 0)
+                {
+                    pageProgress?.Report((filteredNewPhotosOnPage, currentFilteredBrowserPhotos.Count, progressTotal));
+                }
+
+                if (newPhotosOnPage.Count == 0)
+                {
+                    AppLog.Warn($"Browser photo pagination for student {studentId} returned a page with no new photo ids (page {browserPage}). Stopping to prevent repeating-page loops.");
+                    var filteredBrowserPhotos = FilterPhotosForStudent(studentId, browserPhotos);
+                    progress?.Report((filteredBrowserPhotos.Count, filteredBrowserPhotos.Count));
+                    AppLog.Info(
+                        $"Loaded {filteredBrowserPhotos.Count} photos for student {studentId} from mobile browser session.");
+                    return filteredBrowserPhotos;
+                }
 
                 if (!pageResult.HasMore || pageResult.ItemCount == 0)
                 {
@@ -107,7 +147,7 @@ public class MobileProcareApiService : IProcareMediaClient
             return [];
         }
 
-        return await _httpApi.GetPhotosAsync(studentId, progress, ct);
+        return await _httpApi.GetPhotosAsync(studentId, progress, ct, pageProgress);
     }
 
     public async Task DownloadPhotoAsync(Photo photo, string destinationPath, CancellationToken ct = default)

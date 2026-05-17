@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Procare Downloader Mobile UX Concepts</title>
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --surface: #ffffff;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #dce3ee;
+      --teal: #0f766e;
+      --teal-soft: #e5f7f4;
+      --blue: #2563eb;
+      --blue-soft: #eaf1ff;
+      --green: #15803d;
+      --green-soft: #e8f7ed;
+      --amber: #b45309;
+      --amber-soft: #fff4df;
+      --rose: #be123c;
+      --rose-soft: #ffe7ee;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      width: 430px;
+      background: #e6ecf5;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+    }
+
+    .capture {
+      width: 390px;
+      height: 844px;
+      margin: 0 0 40px 0;
+      background: var(--bg);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .status {
+      height: 28px;
+      padding: 8px 18px 0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .appbar {
+      height: 64px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 16px;
+    }
+
+    .avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 14px;
+      background: var(--teal-soft);
+      color: var(--teal);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .title {
+      font-size: 17px;
+      line-height: 20px;
+      font-weight: 800;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 15px;
+    }
+
+    .icon-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .icon {
+      height: 34px;
+      min-width: 38px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface);
+      display: grid;
+      place-items: center;
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .content {
+      padding: 14px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .small {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 9px 8px;
+      background: #f8fafc;
+      text-align: center;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 16px;
+    }
+
+    .month {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    .month-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--teal);
+      background: var(--teal-soft);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .photo {
+      aspect-ratio: 1;
+      border-radius: 13px;
+      border: 1px solid rgba(15, 118, 110, 0.18);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, .32), rgba(255, 255, 255, 0)),
+        var(--c, #cfe8e5);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .photo:before {
+      content: "";
+      position: absolute;
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .34);
+      right: -10px;
+      top: -12px;
+      transform: rotate(18deg);
+    }
+
+    .check {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 8px;
+      background: var(--teal);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .saved {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      border-radius: 8px;
+      padding: 3px 6px;
+      background: var(--green);
+      color: white;
+      font-size: 8px;
+      font-weight: 900;
+    }
+
+    .bottom {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, .96);
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 14px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      height: 42px;
+      border-radius: 13px;
+      border: 1px solid var(--line);
+      background: white;
+      font-weight: 800;
+      font-size: 12px;
+      display: grid;
+      place-items: center;
+    }
+
+    .btn.primary {
+      border-color: var(--teal);
+      background: var(--teal);
+      color: white;
+    }
+
+    .progress {
+      height: 8px;
+      border-radius: 999px;
+      background: #e6ebf3;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .progress span {
+      display: block;
+      height: 100%;
+      width: var(--p, 40%);
+      background: var(--teal);
+    }
+
+    .timeline {
+      position: relative;
+      padding-left: 22px;
+      margin-top: 14px;
+    }
+
+    .timeline:before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 4px;
+      bottom: 0;
+      width: 2px;
+      background: #d8e0ec;
+    }
+
+    .day {
+      position: relative;
+      margin-bottom: 14px;
+    }
+
+    .day:before {
+      content: "";
+      position: absolute;
+      left: -20px;
+      top: 5px;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--blue);
+      border: 3px solid var(--bg);
+    }
+
+    .row-photos {
+      display: flex;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .thumb {
+      width: 64px;
+      height: 64px;
+      border-radius: 13px;
+      background: var(--c, #d9ecff);
+      border: 1px solid rgba(37, 99, 235, .14);
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      padding: 4px;
+      border-radius: 15px;
+      background: #edf2f8;
+      margin: 12px 0;
+    }
+
+    .tab {
+      height: 34px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: white;
+      color: var(--teal);
+      box-shadow: 0 4px 10px rgba(15, 23, 42, .08);
+    }
+
+    .queue-card {
+      display: grid;
+      grid-template-columns: 74px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      padding: 10px;
+      margin-bottom: 9px;
+    }
+
+    .queue-img {
+      width: 74px;
+      height: 64px;
+      border-radius: 14px;
+      background: var(--c, #e7f1ed);
+    }
+
+    .stepper {
+      display: flex;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .step {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: #dae2ee;
+    }
+
+    .step.done {
+      background: var(--teal);
+    }
+
+    .option {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      background: white;
+    }
+
+    .option.selected {
+      border-color: var(--teal);
+      background: var(--teal-soft);
+    }
+
+    .preview {
+      margin-top: 12px;
+      border-radius: 16px;
+      border: 1px dashed #adc3d1;
+      padding: 12px;
+      background: #f8fbfc;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <section class="capture" id="concept-1">
+    <div class="status"><span>9:41</span><span>LTE 100%</span></div>
+    <div class="appbar">
+      <div class="avatar">EL</div>
+      <div>
+        <div class="title">Emma Lee</div>
+        <div class="sub">Photo Vault</div>
+      </div>
+      <div class="icon-row"><div class="icon">Tune</div><div class="icon">All</div></div>
+    </div>
+    <div class="content">
+      <div class="card">
+        <p class="section-title">Library ready</p>
+        <div class="sub">All photos are counted before save counters appear.</div>
+        <div class="metric-row">
+          <div class="metric"><strong>142</strong><span class="small">Photos</span></div>
+          <div class="metric"><strong>85</strong><span class="small">Saved</span></div>
+          <div class="metric"><strong>57</strong><span class="small">New</span></div>
+        </div>
+      </div>
+      <div class="month">
+        <div class="month-head">
+          <div><b>October 2026</b><div class="small">24 photos | 8 selected | 6 saved</div></div>
+          <div class="pill">Select month</div>
+        </div>
+        <div class="grid">
+          <div class="photo" style="--c:#bfded7"><div class="check">✓</div></div>
+          <div class="photo" style="--c:#d8e6ff"></div>
+          <div class="photo" style="--c:#ffe2bb"><div class="saved">Saved</div></div>
+          <div class="photo" style="--c:#e5cdf8"><div class="check">✓</div></div>
+          <div class="photo" style="--c:#c7e0f6"></div>
+          <div class="photo" style="--c:#fad0d7"><div class="saved">Saved</div></div>
+        </div>
+      </div>
+      <div class="month">
+        <div class="month-head">
+          <div><b>September 2026</b><div class="small">45 photos | collapsed</div></div>
+          <div class="pill">Open</div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="small">8 selected</div>
+      <div class="actions"><div class="btn">Save New (57)</div><div class="btn primary">Save Selected</div></div>
+    </div>
+  </section>
+
+  <section class="capture" id="concept-2">
+    <div class="status"><span>9:41</span><span>LTE 100%</span></div>
+    <div class="appbar">
+      <div class="avatar" style="background:var(--blue-soft);color:var(--blue)">TE</div>
+      <div>
+        <div class="title">Timeline Exporter</div>
+        <div class="sub">Nathan Lee</div>
+      </div>
+      <div class="icon-row"><div class="icon">Filter</div></div>
+    </div>
+    <div class="content">
+      <div class="card">
+        <p class="section-title">Loading photo list</p>
+        <div class="sub">Loaded 83 photos. Full count and saved totals appear after the scan finishes.</div>
+        <div class="progress" style="--p:58%"><span></span></div>
+      </div>
+      <div class="timeline">
+        <div class="day">
+          <b>Today</b><div class="small">12 photos found so far</div>
+          <div class="row-photos">
+            <div class="thumb" style="--c:#cde7ec"></div><div class="thumb" style="--c:#ffe3b6"></div><div class="thumb" style="--c:#d8d7ff"></div>
+          </div>
+        </div>
+        <div class="day">
+          <b>Yesterday</b><div class="small">18 photos found so far</div>
+          <div class="row-photos">
+            <div class="thumb" style="--c:#fbd0d8"></div><div class="thumb" style="--c:#d8ead6"></div><div class="thumb" style="--c:#dbeafe"></div>
+          </div>
+        </div>
+        <div class="day">
+          <b>October 11</b><div class="small">24 photos found so far</div>
+          <div class="row-photos">
+            <div class="thumb" style="--c:#f7d8bd"></div><div class="thumb" style="--c:#cce2ff"></div><div class="thumb" style="--c:#efd5ff"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="small">Scanning first. Save actions unlock when the full count is known.</div>
+      <div class="actions"><div class="btn">Cancel</div><div class="btn primary">Loading...</div></div>
+    </div>
+  </section>
+
+  <section class="capture" id="concept-3">
+    <div class="status"><span>9:41</span><span>LTE 100%</span></div>
+    <div class="appbar">
+      <div class="avatar" style="background:var(--green-soft);color:var(--green)">IQ</div>
+      <div>
+        <div class="title">Review Queue</div>
+        <div class="sub">57 new photos ready</div>
+      </div>
+      <div class="icon-row"><div class="icon">Tune</div></div>
+    </div>
+    <div class="content">
+      <div class="tabs">
+        <div class="tab active">New 57</div>
+        <div class="tab">Saved 85</div>
+        <div class="tab">All 142</div>
+      </div>
+      <div class="card" style="margin-bottom:10px;background:var(--green-soft)">
+        <p class="section-title">New photos are selected</p>
+        <div class="sub">Review the queue, deselect anything you do not want, then save once.</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-img" style="--c:#cde8df"></div>
+        <div><b>Morning activities</b><div class="small">Oct 12 | 16 photos</div></div>
+        <div class="pill">All</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-img" style="--c:#ffe4be"></div>
+        <div><b>Playground</b><div class="small">Oct 10 | 12 photos</div></div>
+        <div class="pill">All</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-img" style="--c:#d8ddff"></div>
+        <div><b>Classroom</b><div class="small">Oct 8 | 9 photos</div></div>
+        <div class="pill">All</div>
+      </div>
+      <div class="queue-card">
+        <div class="queue-img" style="--c:#ffd5de"></div>
+        <div><b>Art day</b><div class="small">Oct 6 | 20 photos</div></div>
+        <div class="pill">All</div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="small">57 selected from New</div>
+      <div class="actions"><div class="btn">Deselect All</div><div class="btn primary">Save New (57)</div></div>
+    </div>
+  </section>
+
+  <section class="capture" id="concept-4">
+    <div class="status"><span>9:41</span><span>LTE 100%</span></div>
+    <div class="appbar">
+      <div class="avatar" style="background:var(--amber-soft);color:var(--amber)">SW</div>
+      <div>
+        <div class="title">Export Setup</div>
+        <div class="sub">Step 3 of 5</div>
+      </div>
+      <div class="icon-row"><div class="icon">Exit</div></div>
+    </div>
+    <div class="content">
+      <div class="card">
+        <p class="section-title">Choose save layout</p>
+        <div class="sub">Set this once before reviewing photos. You can change it later in settings.</div>
+        <div class="stepper"><div class="step done"></div><div class="step done"></div><div class="step done"></div><div class="step"></div><div class="step"></div></div>
+      </div>
+      <div class="option"><div><b>Single folder</b><div class="small">Fastest, no child/date folders</div></div><div class="small">Off</div></div>
+      <div class="option"><div><b>Year / Month</b><div class="small">Good for one child</div></div><div class="small">Off</div></div>
+      <div class="option selected"><div><b>Student / Year / Month</b><div class="small">Best for multiple children</div></div><div class="pill">Selected</div></div>
+      <div class="preview">
+        Preview path<br />
+        Downloads / Emma Lee / 2026 / 10 / 2026-10-12_4382.jpg
+      </div>
+      <div class="card" style="margin-top:12px;background:var(--amber-soft)">
+        <p class="section-title">Next: scan photos</p>
+        <div class="sub">The next step only shows loading progress. Final counts appear after the scan completes.</div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="actions"><div class="btn">Back</div><div class="btn primary">Continue</div></div>
+    </div>
+  </section>
+</body>
+</html>

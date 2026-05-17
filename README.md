@@ -1,9 +1,10 @@
 # Procare Photo Downloader
 
-This repository now contains two app targets:
+This repository now contains three app targets:
 
 - A Windows desktop app built with WPF on .NET 8
 - A mobile app built with .NET MAUI for Android and iOS
+- A Flutter mobile rewrite for Android and iOS
 
 Both are focused on browsing and downloading full-resolution photos from Procare Connect at `schools.procareconnect.com`.
 
@@ -75,6 +76,7 @@ Default local data paths:
 ## Mobile App
 
 The repository also includes a separate .NET MAUI mobile app in `ProcareDownloader.Mobile`.
+See `docs/plans/mobile-ux-modernization-plan.md` for the current mobile UX modernization plan.
 
 Current scope:
 
@@ -82,14 +84,27 @@ Current scope:
 - iOS target
 - Shared core logic with the desktop app for models, download history, settings, and file-layout rules
 
+### Flutter Rewrite
+
+The repo also includes a Flutter rewrite in `ProcareDownloader.Flutter`.
+
+From that folder, you can run:
+
+```powershell
+cd ProcareDownloader.Flutter
+flutter pub get
+flutter run
+flutter test
+```
+
 Current mobile status:
 
-- Embedded login via MAUI `WebView`
+- Embedded login via Flutter `WebView`
 - Student selection
-- Month-grouped gallery
-- Download selected
-- Download unsaved
-- In-app save layout selection
+- Timeline Explorer gallery grouped by day
+- Background photo scanning with incremental timeline updates and progress
+- Download selected new photos
+- Export Setup sheet with save layout selection, output preview, history reset, and sign out
 
 Important note:
 
@@ -110,6 +125,7 @@ Important note:
 - .NET SDK with MAUI workloads
 - Android workload for Android builds
 - iOS workload plus a Mac toolchain for real iOS device/archive builds
+- Flutter SDK for the Flutter rewrite
 
 WebView2 is usually already installed on modern Windows systems. If not, install it from:
 

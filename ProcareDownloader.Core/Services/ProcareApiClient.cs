@@ -12,6 +12,7 @@ public class ProcareApiClient : IProcareMediaClient
     private const string ParentKidsPath = "/parent/kids";
     private const string ParentActivitiesPath = "/parent/activities";
     private const string ParentDailyActivitiesPath = "/parent/daily_activities";
+    private const int MaxPhotoPages = 500;
 
     private readonly HttpClient _http;
     private string _token = "";
@@ -77,23 +78,53 @@ public class ProcareApiClient : IProcareMediaClient
     public async Task<List<Photo>> GetPhotosAsync(
         string studentId,
         IProgress<(int loaded, int total)>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<(IReadOnlyList<Photo> photos, int loaded, int total)>? pageProgress = null)
     {
         var photos = new List<Photo>();
         var page = 1;
         var total = 0;
+        var seenPhotoIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         while (!ct.IsCancellationRequested)
         {
+            if (page > MaxPhotoPages)
+            {
+                AppLog.Warn($"Photo pagination reached conservative page limit ({MaxPhotoPages}) for student {studentId}. Stopping to avoid infinite loops.");
+                break;
+            }
+
             var pageResult = await GetPhotosPageAsync(studentId, page, ct);
             if (!pageResult.Success)
             {
                 break;
             }
 
-            photos.AddRange(pageResult.Photos);
+            var newPhotosOnPage = new List<Photo>();
+            foreach (var photo in pageResult.Photos)
+            {
+                if (!string.IsNullOrWhiteSpace(photo.Id) && seenPhotoIds.Add(photo.Id))
+                {
+                    newPhotosOnPage.Add(photo);
+                }
+            }
+
+            photos.AddRange(newPhotosOnPage);
             total = pageResult.Total > 0 ? pageResult.Total : total;
-            progress?.Report((photos.Count, total > 0 ? total : photos.Count));
+            var filtered = FilterPhotosForStudent(studentId, photos);
+            var filteredPage = FilterPhotosForStudent(studentId, newPhotosOnPage);
+            var progressTotal = total > 0 ? total : filtered.Count;
+            progress?.Report((filtered.Count, progressTotal));
+            if (filteredPage.Count > 0)
+            {
+                pageProgress?.Report((filteredPage, filtered.Count, progressTotal));
+            }
+
+            if (newPhotosOnPage.Count == 0)
+            {
+                AppLog.Warn($"Photo pagination for student {studentId} returned a page with no new photo ids (page {page}). Stopping to prevent repeating-page loops.");
+                break;
+            }
 
             if (!pageResult.HasMore || pageResult.ItemCount == 0)
             {
@@ -103,9 +134,9 @@ public class ProcareApiClient : IProcareMediaClient
             page++;
         }
 
-        var filtered = FilterPhotosForStudent(studentId, photos);
-        progress?.Report((filtered.Count, filtered.Count));
-        return filtered;
+        var finalFiltered = FilterPhotosForStudent(studentId, photos);
+        progress?.Report((finalFiltered.Count, finalFiltered.Count));
+        return finalFiltered;
     }
 
     public async Task DownloadPhotoAsync(Photo photo, string destinationPath, CancellationToken ct = default)

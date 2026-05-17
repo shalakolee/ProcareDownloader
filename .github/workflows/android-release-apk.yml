@@ -1,0 +1,250 @@
+name: Android APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: "Which APK variant to build"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - release
+          - debug
+      build_name:
+        description: "Marketing version, for example 1.0.0"
+        required: true
+        default: "1.0.0"
+      build_number:
+        description: "Build number. Defaults to the workflow run number when blank."
+        required: false
+        default: ""
+      split_per_abi:
+        description: "Build one APK per CPU architecture instead of one universal APK."
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: "Optional Git tag to create/update a GitHub Release with the selected APKs, for example android-v1.0.0."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "android-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    env:
+      FLUTTER_PROJECT_DIR: ProcareDownloader.Flutter
+      KEYSTORE_PATH: ProcareDownloader.Flutter/android/app/upload-keystore.jks
+      KEY_PROPERTIES_PATH: ProcareDownloader.Flutter/android/key.properties
+      APK_OUTPUT_DIR: ${{ runner.temp }}/procare-android-apks
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.41.9"
+          cache: true
+
+      - name: Validate Android signing inputs
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_mode != 'debug' }}
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required GitHub secrets for a signed release APK:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+      - name: Install Android signing key
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_mode != 'debug' }}
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$KEYSTORE_PATH")"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["KEYSTORE_PATH"]).write_bytes(
+              base64.b64decode(os.environ["ANDROID_KEYSTORE_BASE64"])
+          )
+          PY
+          chmod 600 "$KEYSTORE_PATH"
+
+          cat > "$KEY_PROPERTIES_PATH" <<EOF
+          storeFile=app/upload-keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          chmod 600 "$KEY_PROPERTIES_PATH"
+
+      - name: Resolve dependencies and test
+        working-directory: ${{ env.FLUTTER_PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+          flutter test --reporter compact
+
+      - name: Build APK
+        working-directory: ${{ env.FLUTTER_PROJECT_DIR }}
+        shell: bash
+        env:
+          BUILD_MODE_INPUT: ${{ github.event.inputs.build_mode }}
+          BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
+          BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
+          SPLIT_PER_ABI_INPUT: ${{ github.event.inputs.split_per_abi }}
+        run: |
+          set -euo pipefail
+          BUILD_MODE="${BUILD_MODE_INPUT:-release}"
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+            BUILD_MODE="release"
+          fi
+
+          BUILD_NAME="${BUILD_NAME_INPUT:-1.0.0}"
+          BUILD_NUMBER="$BUILD_NUMBER_INPUT"
+          if [[ -z "$BUILD_NUMBER" ]]; then
+            BUILD_NUMBER="${{ github.run_number }}"
+          fi
+          SPLIT_PER_ABI="${SPLIT_PER_ABI_INPUT:-false}"
+
+          case "$BUILD_MODE" in
+            debug)
+              variants=(debug)
+              ;;
+            release)
+              variants=(release)
+              ;;
+            both)
+              variants=(debug release)
+              ;;
+            *)
+              echo "Unsupported build mode: $BUILD_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "ANDROID_BUILD_MODE=$BUILD_MODE" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_NAME=$BUILD_NAME" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_VARIANTS=${variants[*]}" >> "$GITHUB_ENV"
+
+          for variant in "${variants[@]}"; do
+            build_args=(
+              "--$variant"
+              --build-name "$BUILD_NAME"
+              --build-number "$BUILD_NUMBER"
+            )
+            if [[ "$SPLIT_PER_ABI" == "true" ]]; then
+              build_args+=(--split-per-abi)
+            fi
+
+            flutter build apk "${build_args[@]}"
+          done
+
+      - name: Collect APK artifacts
+        working-directory: ${{ env.FLUTTER_PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APK_OUTPUT_DIR"
+          find build/app/outputs/flutter-apk \
+            -maxdepth 1 \
+            -type f \
+            \( -name '*-debug.apk' -o -name '*-release.apk' \) \
+            -exec cp {} "$APK_OUTPUT_DIR/" \;
+          cd "$APK_OUTPUT_DIR"
+          shopt -s nullglob
+          apks=(*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No APKs were produced." >&2
+            exit 1
+          fi
+          sha256sum "${apks[@]}" > SHA256SUMS.txt
+          ls -lh
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: procare-android-apks-${{ github.run_number }}
+          path: ${{ env.APK_OUTPUT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update GitHub Release
+        if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '') || startsWith(github.ref, 'refs/tags/android-v') }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+
+          TAG="$RELEASE_TAG_INPUT"
+          if [[ -z "$TAG" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+          TITLE="Procare Downloader Android $ANDROID_BUILD_NAME ($ANDROID_BUILD_NUMBER)"
+          NOTES="Android APK build from ${GITHUB_SHA}. Variants: ${ANDROID_BUILD_VARIANTS}."
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_OUTPUT_DIR"/* --clobber
+          else
+            gh release create "$TAG" "$APK_OUTPUT_DIR"/* --title "$TITLE" --notes "$NOTES"
+          fi

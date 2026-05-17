@@ -19,6 +19,13 @@ public enum MobileAppState
     Downloading
 }
 
+public enum MobileReviewFilter
+{
+    New,
+    Saved,
+    All
+}
+
 public partial class MainPageViewModel : ObservableObject
 {
     private readonly MobileProcareApiService _api;
@@ -29,6 +36,8 @@ public partial class MainPageViewModel : ObservableObject
     private readonly SettingsService _settingsService;
     private readonly AppSettings _settings;
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _photoRefreshCts;
+    private readonly Dictionary<string, MobilePhotoItemViewModel> _photoItemsByKey = new(StringComparer.OrdinalIgnoreCase);
 
     public MainPageViewModel(
         MobileProcareApiService api,
@@ -46,13 +55,26 @@ public partial class MainPageViewModel : ObservableObject
         _settingsService = settingsService;
         _settings = _settingsService.Load();
 
-        DownloadLayoutOptions.Add(new DownloadLayoutOption(DownloadLayout.Flat, "Single Folder"));
-        DownloadLayoutOptions.Add(new DownloadLayoutOption(DownloadLayout.YearMonth, "Year / Month"));
-        DownloadLayoutOptions.Add(new DownloadLayoutOption(DownloadLayout.StudentYear, "Student / Year"));
-        DownloadLayoutOptions.Add(new DownloadLayoutOption(DownloadLayout.StudentYearMonth, "Student / Year / Month"));
+        DownloadLayoutOptions.Add(new DownloadLayoutOption(
+            DownloadLayout.Flat,
+            "Single Folder",
+            "Fastest, no child or date folders"));
+        DownloadLayoutOptions.Add(new DownloadLayoutOption(
+            DownloadLayout.YearMonth,
+            "Year / Month",
+            "Simple folders for one or two students"));
+        DownloadLayoutOptions.Add(new DownloadLayoutOption(
+            DownloadLayout.StudentYear,
+            "Student / Year",
+            "Good for organizing by child"));
+        DownloadLayoutOptions.Add(new DownloadLayoutOption(
+            DownloadLayout.StudentYearMonth,
+            "Student / Year / Month",
+            "Best for mixed classrooms and many dates"));
 
         SelectedDownloadLayout = DownloadLayoutOptions.FirstOrDefault(option => option.Layout == _settings.DownloadLayout)
                                  ?? DownloadLayoutOptions.First();
+        SetDownloadLayoutSelection(SelectedDownloadLayout);
     }
 
     public event EventHandler? ReloadLoginRequested;
@@ -74,10 +96,15 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty] private MobilePhotoItemViewModel? _activeViewerPhoto;
     [ObservableProperty] private bool _isThumbnailPrefetching;
     [ObservableProperty] private string _cacheUsageText = "Cache: checking...";
+    [ObservableProperty] private MobileReviewFilter _selectedReviewFilter = MobileReviewFilter.New;
+    [ObservableProperty] private int _loadedPhotoCount;
+    [ObservableProperty] private int _expectedPhotoCount;
+    [ObservableProperty] private bool _isPhotoListRefreshing;
 
     public ObservableCollection<Student> Students { get; } = [];
     public ObservableCollection<MobilePhotoMonthGroupViewModel> MonthGroups { get; } = [];
     public ObservableCollection<MobileGalleryRowViewModel> GalleryRows { get; } = [];
+    public ObservableCollection<MobilePhotoReviewGroupViewModel> ReviewGroups { get; } = [];
     public ObservableCollection<DownloadLayoutOption> DownloadLayoutOptions { get; } = [];
 
     public bool IsLoginVisible => State == MobileAppState.Login;
@@ -86,20 +113,68 @@ public partial class MainPageViewModel : ObservableObject
     public bool IsGalleryVisible => State == MobileAppState.Gallery || State == MobileAppState.Downloading;
     public bool IsDownloading => State == MobileAppState.Downloading;
     public bool IsThumbnailPrefetchOverlayVisible => IsGalleryVisible && IsThumbnailPrefetching;
+    public bool IsPhotoLoadingProgressVisible => IsPhotoListRefreshing && LoadedPhotoCount > 0;
+    public bool IsFinalPhotoSummaryVisible => IsGalleryVisible && !IsPhotoListRefreshing;
+    public bool IsTimelineLoadingSummaryVisible => IsGalleryVisible && IsPhotoListRefreshing;
+    public bool IsBottomProgressVisible => IsDownloading || IsPhotoListRefreshing;
+    public bool IsSaveActionsEnabled => IsGalleryVisible && !IsPhotoListRefreshing && SelectedCount > 0;
     public string HeaderTitle => IsGalleryVisible && SelectedStudent != null
-        ? SelectedStudent.FullName
+        ? "Timeline Explorer"
         : "Procare Photo Downloader";
     public string HeaderSubtitle => IsGalleryVisible
-        ? $"{TotalCount} photos"
+        ? IsPhotoListRefreshing
+            ? $"{SelectedStudent?.FullName} | Loading photo list..."
+            : $"{SelectedStudent?.FullName} | {UnsavedCount} new photos ready"
         : StatusMessage;
 
     public int TotalCount => MonthGroups.SelectMany(group => group.Photos).Count();
     public int SelectedCount => MonthGroups.SelectMany(group => group.Photos).Count(photo => photo.IsSelected);
+    public int SelectedNewCount => MonthGroups.SelectMany(group => group.Photos).Count(photo => photo.IsSelected && !photo.IsDownloaded);
     public int DownloadedCount => MonthGroups.SelectMany(group => group.Photos).Count(photo => photo.IsDownloaded);
     public int UnsavedCount => MonthGroups.SelectMany(group => group.Photos).Count(photo => !photo.IsDownloaded);
     public bool AllSelected => TotalCount > 0 && SelectedCount == TotalCount;
+    public bool ActiveFilterAllSelected => ActiveFilterPhotos.Count > 0 && ActiveFilterPhotos.All(photo => photo.IsSelected);
     public string SelectAllButtonText => AllSelected ? "Deselect All" : "Select All";
-    public string UnsavedDownloadButtonText => $"Download Unsaved ({UnsavedCount})";
+    public string SelectAllShortButtonText => AllSelected ? "Clear" : "All";
+    public string ActiveFilterSelectionButtonText => ActiveFilterAllSelected ? "Deselect All" : "Select All";
+    public string UnsavedDownloadButtonText => $"Save New ({UnsavedCount})";
+    public string DownloadSelectedButtonText => SelectedCount > 0 ? $"Save Selected ({SelectedCount})" : "Save Selected";
+    public string PrimaryDownloadButtonText => IsPhotoListRefreshing
+        ? "Loading..."
+        : SelectedNewCount > 0
+            ? $"Save New ({SelectedNewCount})"
+            : DownloadSelectedButtonText;
+    public string TimelineSubtitle => IsPhotoListRefreshing
+        ? $"{LoadedPhotoCount} photos found so far. Full saved and new counts appear when the scan finishes."
+        : $"{TotalCount} photos | {UnsavedCount} new | {DownloadedCount} saved";
+    public string BottomStatusText => IsPhotoListRefreshing
+        ? "Scanning first. Save actions unlock when the full count is known."
+        : $"{SelectedCount} selected";
+    public string ReviewIntroTitle => SelectedReviewFilter switch
+    {
+        MobileReviewFilter.New => UnsavedCount == 0 ? "No new photos" : "New photos are selected",
+        MobileReviewFilter.Saved => "Saved photos",
+        _ => "All photos"
+    };
+    public string ReviewIntroSubtitle => SelectedReviewFilter switch
+    {
+        MobileReviewFilter.New => UnsavedCount == 0
+            ? "Everything in this library has already been saved."
+            : "Review the queue, deselect anything you do not want, then save once.",
+        MobileReviewFilter.Saved => "These photos are already in your local download history.",
+        _ => "Browse the full library and select any photos you want to save again."
+    };
+    public string NewTabText => $"New {UnsavedCount}";
+    public string SavedTabText => $"Saved {DownloadedCount}";
+    public string AllTabText => $"All {TotalCount}";
+    public bool IsNewFilterActive => SelectedReviewFilter == MobileReviewFilter.New;
+    public bool IsSavedFilterActive => SelectedReviewFilter == MobileReviewFilter.Saved;
+    public bool IsAllFilterActive => SelectedReviewFilter == MobileReviewFilter.All;
+    public string LoadingPhotoProgressText => ExpectedPhotoCount > 0
+        ? $"Loaded {LoadedPhotoCount} of {ExpectedPhotoCount} photos"
+        : LoadedPhotoCount > 0
+            ? $"Found {LoadedPhotoCount} photos so far"
+            : "";
     public string DownloadRootPath => _downloader.DownloadRootPath;
     public string DownloadLayoutPreview => MobileDownloadPathHelper.BuildLayoutPreviewPath(
         SelectedDownloadLayout?.Layout ?? DownloadLayout.StudentYearMonth,
@@ -123,6 +198,7 @@ public partial class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(IsGalleryVisible));
         OnPropertyChanged(nameof(IsDownloading));
         OnPropertyChanged(nameof(IsThumbnailPrefetchOverlayVisible));
+        OnPropertyChanged(nameof(IsPhotoLoadingProgressVisible));
         OnPropertyChanged(nameof(HeaderTitle));
         OnPropertyChanged(nameof(HeaderSubtitle));
     }
@@ -144,6 +220,30 @@ public partial class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(IsThumbnailPrefetchOverlayVisible));
     }
 
+    partial void OnSelectedReviewFilterChanged(MobileReviewFilter value)
+    {
+        RebuildReviewGroups();
+        RefreshCounts();
+        OnPropertyChanged(nameof(IsNewFilterActive));
+        OnPropertyChanged(nameof(IsSavedFilterActive));
+        OnPropertyChanged(nameof(IsAllFilterActive));
+        OnPropertyChanged(nameof(ReviewIntroTitle));
+        OnPropertyChanged(nameof(ReviewIntroSubtitle));
+        OnPropertyChanged(nameof(PrimaryDownloadButtonText));
+        OnPropertyChanged(nameof(ActiveFilterSelectionButtonText));
+    }
+
+    partial void OnLoadedPhotoCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsPhotoLoadingProgressVisible));
+        OnPropertyChanged(nameof(LoadingPhotoProgressText));
+    }
+
+    partial void OnExpectedPhotoCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(LoadingPhotoProgressText));
+    }
+
     partial void OnSelectedDownloadLayoutChanged(DownloadLayoutOption? value)
     {
         if (value == null)
@@ -153,7 +253,19 @@ public partial class MainPageViewModel : ObservableObject
 
         _settings.DownloadLayout = value.Layout;
         _settingsService.Save(_settings);
+        SetDownloadLayoutSelection(value);
         OnPropertyChanged(nameof(DownloadLayoutPreview));
+    }
+
+    [RelayCommand]
+    public void SelectDownloadLayout(DownloadLayoutOption? option)
+    {
+        if (option == null)
+        {
+            return;
+        }
+
+        SelectedDownloadLayout = option;
     }
 
     [RelayCommand]
@@ -166,6 +278,19 @@ public partial class MainPageViewModel : ObservableObject
     public void CloseSettings()
     {
         IsSettingsOpen = false;
+    }
+
+    private void SetDownloadLayoutSelection(DownloadLayoutOption? selected)
+    {
+        if (selected == null)
+        {
+            return;
+        }
+
+        foreach (var option in DownloadLayoutOptions)
+        {
+            option.IsSelected = option.Layout == selected.Layout;
+        }
     }
 
     [RelayCommand]
@@ -276,10 +401,48 @@ public partial class MainPageViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public void ShowNewPhotos()
+    {
+        SelectedReviewFilter = MobileReviewFilter.New;
+    }
+
+    [RelayCommand]
+    public void ShowSavedPhotos()
+    {
+        SelectedReviewFilter = MobileReviewFilter.Saved;
+    }
+
+    [RelayCommand]
+    public void ShowAllPhotos()
+    {
+        SelectedReviewFilter = MobileReviewFilter.All;
+    }
+
+    [RelayCommand]
+    public void ToggleActiveFilterSelection()
+    {
+        var photos = ActiveFilterPhotos;
+        if (photos.Count == 0)
+        {
+            return;
+        }
+
+        var target = !photos.All(photo => photo.IsSelected);
+        foreach (var photo in photos)
+        {
+            photo.IsSelected = target;
+        }
+
+        RefreshCounts();
+    }
+
+    [RelayCommand]
     public void BackToStudents()
     {
+        _cts?.Cancel();
         MonthGroups.Clear();
         GalleryRows.Clear();
+        ReviewGroups.Clear();
         SelectedStudent = null;
         ClosePhotoViewer();
         IsThumbnailPrefetching = false;
@@ -288,6 +451,8 @@ public partial class MainPageViewModel : ObservableObject
         SubStatus = "Your session is still active.";
         ProgressText = "";
         ProgressValue = 0;
+        LoadedPhotoCount = 0;
+        ExpectedPhotoCount = 0;
         RefreshCounts();
     }
 
@@ -313,6 +478,16 @@ public partial class MainPageViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public async Task DownloadPrimaryAsync()
+    {
+        var photos = SelectedReviewFilter == MobileReviewFilter.New
+            ? MonthGroups.SelectMany(group => group.Photos).Where(photo => photo.IsSelected && !photo.IsDownloaded).ToList()
+            : MonthGroups.SelectMany(group => group.Photos).Where(photo => photo.IsSelected).ToList();
+
+        await DownloadPhotosAsync(photos, "No photos selected.");
+    }
+
+    [RelayCommand]
     public void SignOut()
     {
         _cts?.Cancel();
@@ -320,6 +495,7 @@ public partial class MainPageViewModel : ObservableObject
         Students.Clear();
         MonthGroups.Clear();
         GalleryRows.Clear();
+        ReviewGroups.Clear();
         IsThumbnailPrefetching = false;
         SelectedStudent = null;
         ClosePhotoViewer();
@@ -329,6 +505,8 @@ public partial class MainPageViewModel : ObservableObject
         SubStatus = "If Procare auto-signs you back in, sign out inside the web page and then log in with the other account.";
         ProgressText = "";
         ProgressValue = 0;
+        LoadedPhotoCount = 0;
+        ExpectedPhotoCount = 0;
         LoginUrl = $"https://schools.procareconnect.com/login?ts={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
         RefreshCounts();
         ReloadLoginRequested?.Invoke(this, EventArgs.Empty);
@@ -423,11 +601,22 @@ public partial class MainPageViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(TotalCount));
         OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(SelectedNewCount));
         OnPropertyChanged(nameof(DownloadedCount));
         OnPropertyChanged(nameof(UnsavedCount));
         OnPropertyChanged(nameof(AllSelected));
+        OnPropertyChanged(nameof(ActiveFilterAllSelected));
         OnPropertyChanged(nameof(SelectAllButtonText));
+        OnPropertyChanged(nameof(SelectAllShortButtonText));
+        OnPropertyChanged(nameof(ActiveFilterSelectionButtonText));
         OnPropertyChanged(nameof(UnsavedDownloadButtonText));
+        OnPropertyChanged(nameof(DownloadSelectedButtonText));
+        OnPropertyChanged(nameof(PrimaryDownloadButtonText));
+        OnPropertyChanged(nameof(ReviewIntroTitle));
+        OnPropertyChanged(nameof(ReviewIntroSubtitle));
+        OnPropertyChanged(nameof(NewTabText));
+        OnPropertyChanged(nameof(SavedTabText));
+        OnPropertyChanged(nameof(AllTabText));
         OnPropertyChanged(nameof(DownloadLayoutPreview));
         OnPropertyChanged(nameof(HeaderSubtitle));
 
@@ -440,6 +629,11 @@ public partial class MainPageViewModel : ObservableObject
         {
             row.RefreshCounts();
         }
+
+        foreach (var group in ReviewGroups)
+        {
+            group.RefreshCounts();
+        }
     }
 
     private async Task LoadPhotosAsync()
@@ -449,59 +643,72 @@ public partial class MainPageViewModel : ObservableObject
             return;
         }
 
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
         State = MobileAppState.LoadingPhotos;
         StatusMessage = $"Loading photos for {SelectedStudent.FullName}...";
-        SubStatus = "";
+        SubStatus = "Scanning the full photo list before showing saved and selected totals.";
         ProgressValue = 0;
         ProgressText = "";
+        LoadedPhotoCount = 0;
+        ExpectedPhotoCount = 0;
         IsThumbnailPrefetching = false;
         MonthGroups.Clear();
         GalleryRows.Clear();
+        ReviewGroups.Clear();
 
-        _cts = new CancellationTokenSource();
-        var token = _cts.Token;
         var studentId = SelectedStudent.Id;
         var studentName = SelectedStudent.FullName;
+        MobilePhotoCacheResult? staleCache = null;
 
         try
         {
             var cached = await _photoCache.TryLoadAsync(studentId, token);
             if (cached.HasCache)
             {
-                ApplyPhotosToGallery(cached.Photos);
-
-                var ageMinutes = Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - cached.SavedAtUtc).TotalMinutes));
-                State = MobileAppState.Gallery;
-                StatusMessage = $"{studentName} — {TotalCount} photos";
-                SubStatus = cached.IsFresh
-                    ? $"{DownloadedCount} already downloaded • loaded from cache"
-                    : $"{DownloadedCount} already downloaded • cache is {ageMinutes} minutes old, refreshing...";
-                RefreshCounts();
-
                 if (cached.IsFresh)
                 {
+                    ApplyPhotosToGallery(cached.Photos);
+                    State = MobileAppState.Gallery;
+                    StatusMessage = $"{studentName} - {TotalCount} photos";
+                    SubStatus = $"{UnsavedCount} new photos ready";
+                    ProgressText = "";
+                    ProgressValue = 0;
+                    RefreshCounts();
                     WarmInitialThumbnails(token);
                     return;
                 }
+
+                staleCache = cached;
+                var ageMinutes = Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - cached.SavedAtUtc).TotalMinutes));
+                SubStatus = $"Refreshing cached library from {ageMinutes} minutes ago.";
             }
 
             var progress = new Progress<(int loaded, int total)>(item =>
             {
-                var totalText = item.total > 0 ? item.total.ToString() : "?";
-                StatusMessage = $"Loading photos... {item.loaded}/{totalText}";
+                LoadedPhotoCount = Math.Max(0, item.loaded);
+                ExpectedPhotoCount = Math.Max(0, item.total);
+                ProgressValue = ExpectedPhotoCount > 0
+                    ? Math.Clamp((double)LoadedPhotoCount / ExpectedPhotoCount, 0, 1)
+                    : 0;
+                ProgressText = LoadingPhotoProgressText;
+                StatusMessage = "Loading photo list...";
             });
 
             var photos = await _api.GetPhotosAsync(studentId, progress, token);
+            token.ThrowIfCancellationRequested();
             await _photoCache.SaveAsync(studentId, photos, token);
+            token.ThrowIfCancellationRequested();
 
-            if (!cached.HasCache || !MobilePhotoMetadataCacheService.AreEquivalent(cached.Photos, photos))
-            {
-                ApplyPhotosToGallery(photos);
-            }
-
+            ApplyPhotosToGallery(photos);
             State = MobileAppState.Gallery;
-            StatusMessage = $"{studentName} — {TotalCount} photos";
-            SubStatus = $"{DownloadedCount} already downloaded";
+            StatusMessage = $"{studentName} - {TotalCount} photos";
+            SubStatus = $"{UnsavedCount} new photos ready";
+            ProgressText = "";
+            ProgressValue = 0;
             RefreshCounts();
             WarmInitialThumbnails(token);
         }
@@ -510,10 +717,11 @@ public partial class MainPageViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            if (MonthGroups.Count > 0)
+            if (staleCache?.HasCache == true)
             {
+                ApplyPhotosToGallery(staleCache.Value.Photos);
                 State = MobileAppState.Gallery;
-                StatusMessage = $"{studentName} — {TotalCount} photos";
+                StatusMessage = $"{studentName} - {TotalCount} photos";
                 SubStatus = $"Using cached photos. Refresh failed: {ex.Message}";
                 AppLog.Error($"Mobile photo refresh failed for student {studentId}; cache kept.", ex);
                 WarmInitialThumbnails(token);
@@ -535,6 +743,7 @@ public partial class MainPageViewModel : ObservableObject
     {
         MonthGroups.Clear();
         GalleryRows.Clear();
+        ReviewGroups.Clear();
 
         var groups = photos
             .OrderByDescending(photo => photo.CreatedAt)
@@ -547,9 +756,10 @@ public partial class MainPageViewModel : ObservableObject
                     _history.IsDownloaded(photo),
                     _imageCache.GetThumbnailSource(photo),
                     _imageCache.GetFullImageSource(photo),
-                    RefreshCounts)).ToList(),
+                    RefreshCounts,
+                    isSelected: !_history.IsDownloaded(photo))).ToList(),
                 RefreshCounts,
-                isExpanded: true,
+                isExpanded: false,
                 WarmVisibleThumbnailsAsync));
 
         foreach (var group in groups)
@@ -557,7 +767,8 @@ public partial class MainPageViewModel : ObservableObject
             MonthGroups.Add(group);
         }
 
-        RebuildGalleryRows();
+        SelectedReviewFilter = UnsavedCount > 0 ? MobileReviewFilter.New : MobileReviewFilter.All;
+        RebuildReviewGroups();
         RefreshCacheUsage();
     }
 
@@ -599,6 +810,7 @@ public partial class MainPageViewModel : ObservableObject
                 if (_history.IsDownloaded(photo.Photo))
                 {
                     photo.IsDownloaded = true;
+                    photo.IsSelected = false;
                 }
             }
 
@@ -608,6 +820,15 @@ public partial class MainPageViewModel : ObservableObject
                 ? string.Join("; ", result.Errors.Take(3))
                 : $"Saved to: {result.OutputSummary}";
             ProgressText = "";
+            if (SelectedReviewFilter == MobileReviewFilter.New && UnsavedCount == 0)
+            {
+                SelectedReviewFilter = MobileReviewFilter.All;
+            }
+            else
+            {
+                RebuildReviewGroups();
+            }
+
             RefreshCounts();
         }
         catch (OperationCanceledException)
@@ -676,10 +897,9 @@ public partial class MainPageViewModel : ObservableObject
 
     private void WarmInitialThumbnails(CancellationToken token)
     {
-        var firstPhotos = GalleryRows
-            .Where(row => row.IsPhotoRow)
+        var firstPhotos = ReviewGroups
             .Take(4)
-            .SelectMany(row => row.Photos)
+            .SelectMany(group => group.PreviewPhotos)
             .ToList();
 
         if (firstPhotos.Count == 0)
@@ -712,6 +932,39 @@ public partial class MainPageViewModel : ObservableObject
     private List<MobilePhotoItemViewModel> GetAllPhotos()
     {
         return MonthGroups.SelectMany(group => group.Photos).ToList();
+    }
+
+    private List<MobilePhotoItemViewModel> ActiveFilterPhotos => SelectedReviewFilter switch
+    {
+        MobileReviewFilter.New => MonthGroups.SelectMany(group => group.Photos).Where(photo => !photo.IsDownloaded).ToList(),
+        MobileReviewFilter.Saved => MonthGroups.SelectMany(group => group.Photos).Where(photo => photo.IsDownloaded).ToList(),
+        _ => GetAllPhotos()
+    };
+
+    private void RebuildReviewGroups()
+    {
+        ReviewGroups.Clear();
+
+        foreach (var group in MonthGroups)
+        {
+            var photos = SelectedReviewFilter switch
+            {
+                MobileReviewFilter.New => group.Photos.Where(photo => !photo.IsDownloaded).ToList(),
+                MobileReviewFilter.Saved => group.Photos.Where(photo => photo.IsDownloaded).ToList(),
+                _ => group.Photos.ToList()
+            };
+
+            if (photos.Count == 0)
+            {
+                continue;
+            }
+
+            ReviewGroups.Add(new MobilePhotoReviewGroupViewModel(
+                group.Label,
+                photos,
+                RefreshCounts,
+                WarmVisibleThumbnailsAsync));
+        }
     }
 
     private async Task MovePhotoViewerAsync(int delta)
@@ -809,12 +1062,14 @@ public partial class MobilePhotoItemViewModel : ObservableObject
         bool isDownloaded,
         ImageSource? thumbnailSource,
         ImageSource? fullImageSource,
-        Action onChanged)
+        Action onChanged,
+        bool isSelected = false)
     {
         Photo = photo;
         _isDownloaded = isDownloaded;
         _thumbnailSource = thumbnailSource;
         _fullImageSource = fullImageSource;
+        _isSelected = isSelected;
         _onChanged = onChanged;
     }
 
@@ -841,6 +1096,118 @@ public partial class MobilePhotoItemViewModel : ObservableObject
     public void ToggleSelection()
     {
         IsSelected = !IsSelected;
+    }
+}
+
+public partial class MobilePhotoReviewGroupViewModel : ObservableObject
+{
+    private readonly Action _onChanged;
+    private readonly Func<IReadOnlyCollection<MobilePhotoItemViewModel>, Task>? _onExpandedAsync;
+    private bool _isMaterialized;
+
+    public MobilePhotoReviewGroupViewModel(
+        string label,
+        IReadOnlyCollection<MobilePhotoItemViewModel> photos,
+        Action onChanged,
+        Func<IReadOnlyCollection<MobilePhotoItemViewModel>, Task>? onExpandedAsync)
+    {
+        Label = label;
+        Photos = new ObservableCollection<MobilePhotoItemViewModel>(photos);
+        PreviewPhotos = new ObservableCollection<MobilePhotoItemViewModel>(photos.Take(3));
+        VisiblePhotos = [];
+        _onChanged = onChanged;
+        _onExpandedAsync = onExpandedAsync;
+    }
+
+    public string Label { get; }
+    public ObservableCollection<MobilePhotoItemViewModel> Photos { get; }
+    public ObservableCollection<MobilePhotoItemViewModel> PreviewPhotos { get; }
+    public ObservableCollection<MobilePhotoItemViewModel> VisiblePhotos { get; }
+
+    [ObservableProperty] private bool _isExpanded;
+
+    public int TotalCount => Photos.Count;
+    public int SelectedCount => Photos.Count(photo => photo.IsSelected);
+    public int DownloadedCount => Photos.Count(photo => photo.IsDownloaded);
+    public int NewCount => Photos.Count(photo => !photo.IsDownloaded);
+    public bool AllSelected => TotalCount > 0 && SelectedCount == TotalCount;
+    public string Subtitle => $"{TotalCount} photos | {SelectedCount} selected | {DownloadedCount} saved";
+    public string SelectActionText => AllSelected ? "All" : SelectedCount > 0 ? "Some" : "Select";
+    public string ExpandText => IsExpanded ? "Hide" : "Review";
+
+    partial void OnIsExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ExpandText));
+
+        if (!value)
+        {
+            return;
+        }
+
+        EnsureVisiblePhotosMaterialized();
+        _ = NotifyExpandedAsync();
+    }
+
+    [RelayCommand]
+    public void ToggleExpanded()
+    {
+        IsExpanded = !IsExpanded;
+    }
+
+    [RelayCommand]
+    public void ToggleGroupSelection()
+    {
+        var target = !AllSelected;
+        foreach (var photo in Photos)
+        {
+            photo.IsSelected = target;
+        }
+
+        RefreshCounts();
+        _onChanged();
+    }
+
+    public void RefreshCounts()
+    {
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(DownloadedCount));
+        OnPropertyChanged(nameof(NewCount));
+        OnPropertyChanged(nameof(AllSelected));
+        OnPropertyChanged(nameof(Subtitle));
+        OnPropertyChanged(nameof(SelectActionText));
+    }
+
+    private void EnsureVisiblePhotosMaterialized()
+    {
+        if (_isMaterialized)
+        {
+            return;
+        }
+
+        foreach (var photo in Photos)
+        {
+            VisiblePhotos.Add(photo);
+        }
+
+        _isMaterialized = true;
+    }
+
+    private async Task NotifyExpandedAsync()
+    {
+        if (_onExpandedAsync == null || VisiblePhotos.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _onExpandedAsync(VisiblePhotos.ToList());
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Failed to process review group '{Label}'. {ex.Message}");
+        }
     }
 }
 
@@ -963,7 +1330,7 @@ public partial class MobilePhotoMonthGroupViewModel : ObservableObject
     public int DownloadedCount => Photos.Count(photo => photo.IsDownloaded);
     public bool AllSelected => TotalCount > 0 && SelectedCount == TotalCount;
     public string ToggleExpandedText => IsExpanded ? "Collapse" : "Expand";
-    public string ChevronGlyph => IsExpanded ? "▾" : "▸";
+    public string ChevronGlyph => IsExpanded ? "v" : ">";
     public string SelectMonthText => AllSelected ? "Clear Month" : "Select Month";
 
     partial void OnIsExpandedChanged(bool value)
@@ -1048,7 +1415,20 @@ public partial class MobilePhotoMonthGroupViewModel : ObservableObject
     }
 }
 
-public sealed record DownloadLayoutOption(DownloadLayout Layout, string Label)
+public sealed partial class DownloadLayoutOption : ObservableObject
 {
+    public DownloadLayoutOption(DownloadLayout layout, string label, string description)
+    {
+        Layout = layout;
+        Label = label;
+        Description = description;
+    }
+
+    public DownloadLayout Layout { get; }
+    public string Label { get; }
+    public string Description { get; }
+
+    [ObservableProperty] private bool _isSelected;
+
     public override string ToString() => Label;
 }
