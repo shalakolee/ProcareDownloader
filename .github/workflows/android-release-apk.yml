@@ -46,7 +46,7 @@ jobs:
       FLUTTER_PROJECT_DIR: ProcareDownloader.Flutter
       KEYSTORE_PATH: ProcareDownloader.Flutter/android/app/upload-keystore.jks
       KEY_PROPERTIES_PATH: ProcareDownloader.Flutter/android/key.properties
-      APK_OUTPUT_DIR: ${{ runner.temp }}/procare-android-apks
+      APK_OUTPUT_DIR: /tmp/procare-android-apks
 
     steps:
       - name: Checkout

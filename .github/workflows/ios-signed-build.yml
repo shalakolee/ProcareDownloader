@@ -35,12 +35,12 @@ jobs:
 
     env:
       FLUTTER_PROJECT_DIR: ProcareDownloader.Flutter
-      KEYCHAIN_PATH: ${{ runner.temp }}/procare-ios-signing.keychain-db
-      CERTIFICATE_PATH: ${{ runner.temp }}/ios_distribution.p12
-      PROFILE_PATH: ${{ runner.temp }}/profile.mobileprovision
-      PROFILE_PLIST_PATH: ${{ runner.temp }}/profile.plist
-      EXPORT_OPTIONS_PATH: ${{ runner.temp }}/ExportOptions.plist
-      API_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+      KEYCHAIN_PATH: /tmp/procare-ios-signing.keychain-db
+      CERTIFICATE_PATH: /tmp/ios_distribution.p12
+      PROFILE_PATH: /tmp/profile.mobileprovision
+      PROFILE_PLIST_PATH: /tmp/profile.plist
+      EXPORT_OPTIONS_PATH: /tmp/ExportOptions.plist
+      API_KEY_PATH: /tmp/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
 
     steps:
       - name: Checkout
