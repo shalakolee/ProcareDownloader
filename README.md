@@ -6,8 +6,7 @@ The repository contains:
 
 - `ProcareDownloader.Flutter`: the current mobile app for Android and iOS.
 - `ProcareDownloader`: the original Windows desktop app.
-- `ProcareDownloader.Core`: shared models and download logic used by the .NET apps.
-- `ProcareDownloader.Mobile`: the earlier .NET MAUI mobile target.
+- `ProcareDownloader.Core`: shared models and download logic used by the Windows app.
 
 ## Download The Android APK
 
@@ -19,9 +18,9 @@ Android APK builds are published from GitHub Actions.
 
 Debug APKs are intended for local testing. Release APKs are the better choice for normal use when a signed release is available.
 
-## Current Mobile App
+## Mobile App
 
-The Flutter app is the active mobile implementation. See [ProcareDownloader.Flutter/README.md](ProcareDownloader.Flutter/README.md) for mobile setup, build, and release commands.
+The Flutter app is the mobile implementation for Android and iOS. See [ProcareDownloader.Flutter/README.md](ProcareDownloader.Flutter/README.md) for mobile setup, build, and release commands.
 
 Current Flutter features include:
 
