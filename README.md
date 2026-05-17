@@ -17,6 +17,13 @@ Features:
 - Save to Camera Roll, app storage, or a custom Android folder.
 - Organize downloads by student name, date, or both.
 
+## Screenshots
+
+<p>
+  <img src="media/screenshots/mobile-timeline.png" alt="Timeline explorer showing grouped photo thumbnails" width="240">
+  <img src="media/screenshots/mobile-export-setup.png" alt="Export setup options for photo storage and folder layout" width="240">
+</p>
+
 See [ProcareDownloader.Flutter/README.md](ProcareDownloader.Flutter/README.md) for mobile setup and build commands.
 
 ## Android APK
