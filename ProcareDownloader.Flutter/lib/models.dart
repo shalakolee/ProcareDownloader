@@ -1,6 +1,6 @@
 enum AppStage { login, loadingStudents, selectStudent, gallery, downloading }
 
-enum DownloadLayout { flat, yearMonth, studentYear, studentYearMonth }
+enum DownloadLayout { flat, student, yearMonth, studentYear, studentYearMonth }
 
 enum DownloadDestination { cameraRoll, appFolder, customFolder }
 

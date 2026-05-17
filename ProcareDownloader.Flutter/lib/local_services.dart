@@ -19,7 +19,7 @@ class AppSettingsStore {
     final value = prefs.getString(_layoutKey);
     return DownloadLayout.values.firstWhere(
       (layout) => layout.name == value,
-      orElse: () => DownloadLayout.studentYearMonth,
+      orElse: () => DownloadLayout.student,
     );
   }
 
@@ -405,6 +405,7 @@ class DownloadPathHelper {
     );
     return switch (layout) {
       DownloadLayout.yearMonth => p.join(root, year, month),
+      DownloadLayout.student => p.join(root, safeStudentName),
       DownloadLayout.studentYear => p.join(root, safeStudentName, year),
       DownloadLayout.studentYearMonth => p.join(
         root,

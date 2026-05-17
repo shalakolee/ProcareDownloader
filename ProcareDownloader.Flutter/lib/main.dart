@@ -54,6 +54,7 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
   final _settings = AppSettingsStore();
   final _metadataCache = PhotoMetadataCache();
   final _history = DownloadHistoryStore();
+  final _cookieManager = WebViewCookieManager();
 
   late final WebViewController _webViewController;
   Timer? _authTimer;
@@ -72,10 +73,11 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
   var _isRefreshingPhotos = false;
   var _isDownloading = false;
   var _isContinuingBrowserSession = false;
+  var _isSigningOut = false;
   var _browserScriptRequestId = 0;
   var _downloadProgress = 0.0;
   var _progressText = '';
-  DownloadLayout _layout = DownloadLayout.studentYearMonth;
+  DownloadLayout _layout = DownloadLayout.student;
   DownloadDestination _destination = DownloadDestination.cameraRoll;
   String? _customDirectoryUri;
   String? _customDirectoryLabel;
@@ -131,6 +133,9 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
                     'Using the authenticated browser session to load your students.';
               });
             }
+            if (_stage == AppStage.login && url.contains('/login')) {
+              await _applyLoginPageCentering();
+            }
             await _injectAuthHook();
             await _captureTokenFromWebView();
           },
@@ -151,11 +156,12 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
   }
 
   Future<void> _captureTokenFromWebView() async {
-    if (_stage != AppStage.login) {
+    if (_stage != AppStage.login || _isSigningOut) {
       return;
     }
 
     try {
+      await _applyLoginPageCentering();
       await _injectAuthHook();
       final raw = await _webViewController.runJavaScriptReturningResult(
         _captureTokenScript,
@@ -180,8 +186,18 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
     }
   }
 
+  Future<void> _applyLoginPageCentering() async {
+    try {
+      await _webViewController.runJavaScript(_loginCenteringScript);
+    } catch (_) {
+      // The login page can still be navigating while Procare renders its form.
+    }
+  }
+
   Future<void> _tryContinueFromBrowserSession() async {
-    if (_isContinuingBrowserSession || _stage != AppStage.login) {
+    if (_isContinuingBrowserSession ||
+        _stage != AppStage.login ||
+        _isSigningOut) {
       return;
     }
 
@@ -613,6 +629,73 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
     }
   }
 
+  Future<void> _signOut() async {
+    if (_isSigningOut) {
+      return;
+    }
+
+    _isSigningOut = true;
+    _api.clearCredentials();
+
+    if (mounted) {
+      setState(() {
+        _stage = AppStage.login;
+        _students = [];
+        _selectedStudent = null;
+        _itemsByKey.clear();
+        _thumbnailLoads.clear();
+        _loadedPhotoCount = 0;
+        _expectedPhotoCount = 0;
+        _isRefreshingPhotos = false;
+        _isDownloading = false;
+        _downloadProgress = 0;
+        _progressText = '';
+        _status = 'Signing out...';
+        _subStatus = 'Clearing the Procare browser session.';
+      });
+    }
+
+    try {
+      await _webViewController.runJavaScript('''
+try {
+  localStorage.clear();
+  sessionStorage.clear();
+} catch (_) {}
+''');
+    } catch (_) {
+      // The current WebView page can be transient during navigation.
+    }
+
+    try {
+      await _cookieManager.clearCookies();
+    } catch (_) {
+      // Cookie clearing is best-effort; loading the login URL below still resets the app shell.
+    }
+
+    if (!mounted) {
+      _isSigningOut = false;
+      return;
+    }
+
+    await _webViewController.loadRequest(
+      Uri.parse(
+        'https://schools.procareconnect.com/login?reload=${DateTime.now().millisecondsSinceEpoch}',
+      ),
+    );
+
+    if (!mounted) {
+      _isSigningOut = false;
+      return;
+    }
+
+    setState(() {
+      _status = 'Log in to Procare in the embedded browser.';
+      _subStatus =
+          'The app continues automatically after it detects your active session.';
+    });
+    _isSigningOut = false;
+  }
+
   void _toggleSelectAll() {
     final allSelected =
         _itemsByKey.values.isNotEmpty &&
@@ -679,23 +762,8 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
           }
         },
         onSignOut: () {
-          _api.clearCredentials();
           Navigator.of(context).pop(false);
-          setState(() {
-            _stage = AppStage.login;
-            _students = [];
-            _selectedStudent = null;
-            _itemsByKey.clear();
-            _thumbnailLoads.clear();
-            _status = 'Log in to Procare in the embedded browser.';
-            _subStatus =
-                'The app continues automatically after it detects your active session.';
-          });
-          _webViewController.loadRequest(
-            Uri.parse(
-              'https://schools.procareconnect.com/login?reload=${DateTime.now().millisecondsSinceEpoch}',
-            ),
-          );
+          unawaited(_signOut());
         },
         primaryActionText: primaryActionText,
         primaryActionDescription: primaryActionDescription,
@@ -937,6 +1005,10 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
               onSelectAll: _toggleSelectAll,
             ),
             Expanded(child: _buildBody()),
+            if (_stage == AppStage.selectStudent)
+              _StudentPickerActionBar(
+                onSignOut: _isSigningOut ? null : () => unawaited(_signOut()),
+              ),
             if (_stage == AppStage.gallery || _stage == AppStage.downloading)
               _BottomActionBar(
                 isRefreshing: _isRefreshingPhotos,
@@ -1882,6 +1954,11 @@ class _LayoutOption {
 
 const _layoutOptions = [
   _LayoutOption(
+    DownloadLayout.student,
+    'By Student Name',
+    'Default, one folder for each child',
+  ),
+  _LayoutOption(
     DownloadLayout.flat,
     'Single Folder',
     'Fastest, no child or date folders',
@@ -2054,6 +2131,30 @@ class _BottomActionBar extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StudentPickerActionBar extends StatelessWidget {
+  const _StudentPickerActionBar({required this.onSignOut});
+
+  final VoidCallback? onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: _surface,
+        border: Border(top: BorderSide(color: _border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+      child: OutlinedButton.icon(
+        onPressed: onSignOut,
+        icon: const Icon(Icons.logout),
+        label: const Text('Sign Out'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
       ),
     );
   }
@@ -2734,6 +2835,125 @@ class _TextButton extends StatelessWidget {
     );
   }
 }
+
+const _loginCenteringScript = r'''
+(function() {
+  if (window.__procareDownloaderLoginCenteredAt && Date.now() - window.__procareDownloaderLoginCenteredAt < 250) {
+    return;
+  }
+  window.__procareDownloaderLoginCenteredAt = Date.now();
+
+  try {
+    let viewport = document.querySelector('meta[name="viewport"]');
+    if (!viewport) {
+      viewport = document.createElement('meta');
+      viewport.setAttribute('name', 'viewport');
+      document.head.appendChild(viewport);
+    }
+    viewport.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1');
+  } catch {}
+
+  let style = document.getElementById('__procareDownloaderLoginCentering');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = '__procareDownloaderLoginCentering';
+    style.textContent = `
+      html, body {
+        width: 100vw !important;
+        min-width: 0 !important;
+        overflow-x: hidden !important;
+      }
+      body {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+      }
+      input, button, select, textarea {
+        box-sizing: border-box !important;
+        max-width: 100% !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const email = document.querySelector('input[type="email"], input[name*="email" i], input[placeholder*="email" i]');
+  const password = document.querySelector('input[type="password"], input[name*="password" i]');
+  if (!email && !password) {
+    return;
+  }
+
+  const important = (element, property, value) => {
+    try { element.style.setProperty(property, value, 'important'); } catch {}
+  };
+
+  const rootCandidates = Array.from(document.body.querySelectorAll('*'))
+    .filter((element) => {
+      const text = (element.innerText || '').toLowerCase();
+      return text.includes('welcome') &&
+        text.includes('password') &&
+        element.querySelector('input[type="password"], input[name*="password" i]');
+    })
+    .sort((a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return (ar.width * ar.height) - (br.width * br.height);
+    });
+
+  const anchor = email || password;
+  let loginRoot = rootCandidates[0] || anchor;
+  for (let node = anchor; node && node !== document.body && !rootCandidates.length; node = node.parentElement) {
+    const text = (node.innerText || '').toLowerCase();
+    if (text.includes('welcome') && text.includes('password')) {
+      loginRoot = node;
+      break;
+    }
+  }
+
+  const maxWidth = Math.min(window.innerWidth - 32, 460);
+  important(loginRoot, 'box-sizing', 'border-box');
+  important(loginRoot, 'display', 'block');
+  important(loginRoot, 'width', `${maxWidth}px`);
+  important(loginRoot, 'max-width', 'calc(100vw - 32px)');
+  important(loginRoot, 'min-width', '0');
+  important(loginRoot, 'margin-left', 'auto');
+  important(loginRoot, 'margin-right', 'auto');
+  important(loginRoot, 'left', 'auto');
+  important(loginRoot, 'right', 'auto');
+  important(loginRoot, 'float', 'none');
+  important(loginRoot, 'transform', 'none');
+
+  loginRoot.querySelectorAll('input, button, select, textarea').forEach((element) => {
+    important(element, 'box-sizing', 'border-box');
+    important(element, 'max-width', '100%');
+  });
+
+  const fitOversizedChildren = () => {
+    loginRoot.querySelectorAll('*').forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width > maxWidth || rect.right > window.innerWidth || rect.left < 0 || element.scrollWidth > maxWidth) {
+        important(element, 'box-sizing', 'border-box');
+        important(element, 'max-width', '100%');
+        important(element, 'min-width', '0');
+        if (rect.width > maxWidth * 0.9 || element.scrollWidth > maxWidth) {
+          important(element, 'width', '100%');
+        }
+      }
+    });
+
+    const rect = loginRoot.getBoundingClientRect();
+    if (rect.width > window.innerWidth - 16 || rect.left < 8 || rect.right > window.innerWidth - 8) {
+      const scale = Math.min(1, (window.innerWidth - 32) / Math.max(rect.width, 1));
+      const delta = (window.innerWidth / 2) - (rect.left + rect.width / 2);
+      important(loginRoot, 'transform-origin', 'top center');
+      important(loginRoot, 'transform', `translateX(${delta}px) scale(${scale})`);
+    }
+    window.scrollTo(0, window.scrollY);
+  };
+
+  fitOversizedChildren();
+  setTimeout(fitOversizedChildren, 100);
+  setTimeout(fitOversizedChildren, 600);
+})();
+''';
 
 const _authHookScript = r'''
 (function() {
