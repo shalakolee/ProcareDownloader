@@ -52,8 +52,8 @@ Signed CI builds use the root iOS workflow. The setup scripts in `../tools/ios-s
 
 ## Privacy Notes
 
-- The app opens the Procare login page in an embedded WebView.
-- The app does not collect or store the user's Procare password.
-- API session data is kept in memory and cleared on sign out.
+- **The app opens the Procare login page in an embedded WebView.**
+- **The app does not collect or store the user's Procare password.**
+- **API session data is kept in memory and cleared on sign out.**
 - Download history is stored locally on the device so previously saved photos can be marked.
 - Downloaded photos are saved only to the destination selected by the user.
