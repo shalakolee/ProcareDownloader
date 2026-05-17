@@ -1,6 +1,6 @@
 # iOS CI Signing Tool
 
-This folder contains the portable setup tool for the Flutter iOS signing flow.
+This folder contains setup scripts for the Flutter iOS signing flow.
 
 The repository workflow is `.github/workflows/ios-signed-build.yml`. It runs on a GitHub macOS runner, imports your signing assets into a temporary keychain, builds `ProcareDownloader.Flutter`, exports a signed `.ipa`, and optionally uploads an App Store build to TestFlight.
 
@@ -12,7 +12,7 @@ The repository workflow is `.github/workflows/ios-signed-build.yml`. It runs on 
 - An Apple Distribution `.p12` certificate and its export password.
 - A distribution `.mobileprovision` profile for the app bundle ID.
 
-Do not commit the `.p8`, `.p12`, `.mobileprovision`, or passwords. The setup script stores them as GitHub Actions secrets.
+Keep the `.p8`, `.p12`, `.mobileprovision`, and certificate password private. The setup script stores them as GitHub Actions secrets.
 
 ## Apple Setup
 

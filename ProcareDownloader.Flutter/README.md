@@ -1,6 +1,6 @@
-# Procare Photo Downloader Flutter App
+# Procare Photo Downloader Mobile
 
-This is the active mobile app for Procare Photo Downloader.
+Flutter app for exporting Procare photos on Android and iOS.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ Release APK:
 flutter build apk --release
 ```
 
-GitHub Actions can also build APKs from `.github/workflows/android-release-apk.yml`.
+GitHub Actions can also build APKs from the root Android workflow.
 
 ## iOS Builds
 
@@ -48,7 +48,7 @@ Local iOS builds require macOS and Xcode:
 flutter build ios --release
 ```
 
-Signed CI builds use the root workflow `.github/workflows/ios-signed-build.yml`. The setup helper in `../tools/ios-signing` uploads Apple signing assets to GitHub Actions secrets.
+Signed CI builds use the root iOS workflow. The setup scripts in `../tools/ios-signing` upload Apple signing assets to GitHub Actions secrets.
 
 ## Privacy Notes
 
@@ -57,5 +57,3 @@ Signed CI builds use the root workflow `.github/workflows/ios-signed-build.yml`.
 - API session data is kept in memory and cleared on sign out.
 - Download history is stored locally on the device so previously saved photos can be marked.
 - Downloaded photos are saved only to the destination selected by the user.
-
-Do not commit local downloads, screenshots, emulator captures, logs, API responses, signing files, or other account-specific data.

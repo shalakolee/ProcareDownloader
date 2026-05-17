@@ -1,44 +1,37 @@
 # Procare Photo Downloader
 
-Procare Photo Downloader helps families export photos from their own Procare account.
-
-The repository contains:
-
-- `ProcareDownloader.Flutter`: the current mobile app for Android and iOS.
-- `ProcareDownloader`: the original Windows desktop app.
-- `ProcareDownloader.Core`: shared models and download logic used by the Windows app.
-
-## Download The Android APK
-
-Android APK builds are published from GitHub Actions.
-
-1. Open the repository's GitHub Releases page.
-2. Download the newest `app-debug.apk` or `app-release.apk`.
-3. Install the APK on your Android device.
-
-Debug APKs are intended for local testing. Release APKs are the better choice for normal use when a signed release is available.
+Export photos from your Procare account to your phone or computer.
 
 ## Mobile App
 
-The Flutter app is the mobile implementation for Android and iOS. See [ProcareDownloader.Flutter/README.md](ProcareDownloader.Flutter/README.md) for mobile setup, build, and release commands.
+The mobile app is built with Flutter and lives in `ProcareDownloader.Flutter`. It supports Android and iOS.
 
-Current Flutter features include:
+Features:
 
-- Embedded Procare login through a WebView.
-- Student selection after login.
-- Timeline Explorer photo gallery grouped by day.
-- Background photo scanning with incremental progress.
-- Thumbnail and full-image preview.
-- Swipe navigation in the photo viewer.
-- Save selected new photos or intentionally redownload saved photos.
+- Sign in with the Procare web login.
+- Choose a student after login.
+- Browse photos in a day-by-day timeline.
+- View thumbnails and open full-size photos.
+- Swipe between photos in the viewer.
+- Save new photos or redownload photos that were already saved.
 - Save to Camera Roll, app storage, or a custom Android folder.
-- Configurable folder layout, including the default `By Student Name` layout.
+- Organize downloads by student name, date, or both.
 
-The app does not ask for or store your Procare password. It uses the active browser session to reach the Procare APIs and keeps API credentials in memory while the app is running.
+See [ProcareDownloader.Flutter/README.md](ProcareDownloader.Flutter/README.md) for mobile setup and build commands.
+
+## Android APK
+
+Android APKs are built by GitHub Actions and attached to GitHub Releases.
+
+1. Open the repository's Releases page.
+2. Download the latest `app-debug.apk` or `app-release.apk`.
+3. Install the APK on your Android device.
+
+Use debug APKs for testing. Use release APKs for normal installs when a signed release is available.
 
 ## Windows Desktop App
 
-The Windows app is the original WPF implementation.
+The original Windows app is still available in the root WPF project.
 
 Requirements:
 
@@ -53,32 +46,17 @@ dotnet build
 dotnet run
 ```
 
-The desktop app stores settings, logs, download history, and WebView session data under the current user's local application data folder.
+The Windows app stores its settings, logs, download history, and browser session data in the current user's local app data folder.
 
-## CI Builds
+## Builds
 
-Android:
+Android APK workflow:
 
 - `.github/workflows/android-release-apk.yml`
-- Manual workflow input can build `debug`, `release`, or `both`.
-- Release APK signing uses GitHub Actions secrets.
+- Manual runs can build `debug`, `release`, or `both`.
 
-iOS:
+iOS signed build workflow:
 
 - `.github/workflows/ios-signed-build.yml`
-- Requires App Store Connect API key, signing certificate, and provisioning profile stored as GitHub Actions secrets.
-- Helper scripts live in `tools/ios-signing`.
-
-Do not commit signing keys, provisioning profiles, keystores, `.env` files, downloaded photos, logs, caches, or local planning/design notes.
-
-## Repository Hygiene
-
-The public repository intentionally excludes:
-
-- Local planning notes and design exploration files.
-- Screenshots and emulator captures.
-- Downloaded Procare photos or cached thumbnails.
-- App signing keys, App Store Connect keys, provisioning profiles, and keystores.
-- Local logs and runtime data.
-
-If you create local notes or screenshots while working on the app, keep them in ignored folders such as `docs/` or `stitch-screenshots/`.
+- Requires App Store Connect and Apple signing secrets.
+- Setup scripts are in `tools/ios-signing`.
