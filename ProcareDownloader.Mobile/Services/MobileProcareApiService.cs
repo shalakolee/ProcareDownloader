@@ -220,9 +220,8 @@ public class MobileProcareApiService : IProcareMediaClient
         if (node?["error"]?.GetValue<bool?>() == true)
         {
             var status = node["status"]?.GetValue<int?>() ?? 0;
-            var body = node["body"]?.GetValue<string>() ?? "";
             throw new InvalidOperationException(
-                $"Browser download request failed with status {status}. {AppLog.Truncate(body, 300)}");
+                $"Browser download request failed with status {status}.");
         }
 
         var dataUrl = node?["dataUrl"]?.GetValue<string>();
@@ -528,7 +527,7 @@ public class MobileProcareApiService : IProcareMediaClient
         }
         catch (Exception ex)
         {
-            AppLog.Error($"Failed to parse browser result for {operation}. Raw: {AppLog.Truncate(result, 2000)}", ex);
+            AppLog.Error($"Failed to parse browser result for {operation}.", ex);
             throw;
         }
     }
@@ -730,7 +729,7 @@ public class MobileProcareApiService : IProcareMediaClient
         }
 
         AppLog.Warn(
-            $"Payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}. Payload: {AppLog.Truncate(AppLog.SerializeNode(node), 2000)}");
+            $"Payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}.");
         return null;
     }
 

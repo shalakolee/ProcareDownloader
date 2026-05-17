@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="Views/MainWindow.xaml">
     <Application.Resources>
-        <!-- Light operational palette inspired by the Stitch exploration -->
+        <!-- Light operational palette for the app shell -->
         <Color x:Key="DeepNavy">#F7F9FC</Color>
         <Color x:Key="MidBlue">#D7DEE8</Color>
         <Color x:Key="AccentTeal">#0D9488</Color>

@@ -28,7 +28,7 @@ Run one of these from the repo root. macOS gives the best validation because it 
 
 ```bash
 ./tools/ios-signing/setup-ios-signing.sh \
-  --repo shalakolee/ProcareDownloader \
+  --repo OWNER/REPO \
   --api-key ~/Downloads/AuthKey_ABC123DEFG.p8 \
   --issuer-id 11111111-2222-3333-4444-555555555555 \
   --certificate ~/Desktop/apple_distribution.p12 \
@@ -40,7 +40,7 @@ PowerShell, useful from Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\ios-signing\setup-ios-signing.ps1 `
-  -Repo shalakolee/ProcareDownloader `
+  -Repo OWNER/REPO `
   -ApiKey "$HOME\Downloads\AuthKey_ABC123DEFG.p8" `
   -IssuerId "11111111-2222-3333-4444-555555555555" `
   -Certificate "$HOME\Desktop\apple_distribution.p12" `
@@ -55,7 +55,7 @@ Use `--trigger` to start the workflow immediately after uploading secrets:
 
 ```bash
 ./tools/ios-signing/setup-ios-signing.sh \
-  --repo shalakolee/ProcareDownloader \
+  --repo OWNER/REPO \
   --api-key ~/Downloads/AuthKey_ABC123DEFG.p8 \
   --issuer-id 11111111-2222-3333-4444-555555555555 \
   --certificate ~/Desktop/apple_distribution.p12 \
@@ -70,7 +70,7 @@ PowerShell trigger:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\ios-signing\setup-ios-signing.ps1 `
-  -Repo shalakolee/ProcareDownloader `
+  -Repo OWNER/REPO `
   -ApiKey "$HOME\Downloads\AuthKey_ABC123DEFG.p8" `
   -IssuerId "11111111-2222-3333-4444-555555555555" `
   -Certificate "$HOME\Desktop\apple_distribution.p12" `

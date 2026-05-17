@@ -26,7 +26,7 @@ Optional:
 
 Example:
   ./tools/ios-signing/setup-ios-signing.sh \
-    --repo shalakolee/ProcareDownloader \
+    --repo OWNER/REPO \
     --api-key ~/Downloads/AuthKey_ABC123DEFG.p8 \
     --issuer-id 11111111-2222-3333-4444-555555555555 \
     --certificate ~/Desktop/apple_distribution.p12 \

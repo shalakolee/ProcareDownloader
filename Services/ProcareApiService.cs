@@ -481,7 +481,7 @@ public class ProcareApiService : IProcareMediaClient
 
         if (!response.IsSuccessStatusCode)
         {
-            AppLog.Warn($"Student HTTP request failed. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 4000)}");
+            AppLog.Warn($"Student HTTP request failed. Status: {(int)response.StatusCode}.");
             response.EnsureSuccessStatusCode();
         }
 
@@ -502,7 +502,7 @@ public class ProcareApiService : IProcareMediaClient
 
             if (!response.IsSuccessStatusCode)
             {
-                failures.Add($"Url: {url}. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 1000)}");
+                failures.Add($"Status: {(int)response.StatusCode}.");
                 continue;
             }
 
@@ -557,7 +557,7 @@ public class ProcareApiService : IProcareMediaClient
         catch (Exception ex)
         {
             AppLog.Error(
-                $"{operation} failed to parse browser JSON. Raw result: {AppLog.Truncate(result, 4000)}",
+                $"{operation} failed to parse browser JSON.",
                 ex);
             throw;
         }
@@ -779,7 +779,7 @@ public class ProcareApiService : IProcareMediaClient
         }
 
         AppLog.Warn(
-            $"Browser payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}. Payload: {AppLog.Truncate(AppLog.SerializeNode(node), 4000)}");
+            $"Browser payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}.");
         return null;
     }
 

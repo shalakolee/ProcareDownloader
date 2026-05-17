@@ -27,6 +27,9 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
 jobs:
   build-ios:
     name: Build signed iOS IPA
@@ -286,8 +289,29 @@ jobs:
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
 
-      - name: Remove signing keychain
+      - name: Clean up signing files
         if: always()
         shell: bash
         run: |
           security delete-keychain "$KEYCHAIN_PATH" || true
+
+          secure_remove() {
+            for file in "$@"; do
+              if [[ -f "$file" ]]; then
+                rm -P "$file" 2>/dev/null || rm -f "$file"
+              fi
+            done
+          }
+
+          secure_remove \
+            "$API_KEY_PATH" \
+            "$CERTIFICATE_PATH" \
+            "$PROFILE_PATH" \
+            "$PROFILE_PLIST_PATH" \
+            "$EXPORT_OPTIONS_PATH"
+
+          secure_remove "$HOME/private_keys"/AuthKey_*.p8
+
+          if [[ -n "${IOS_PROFILE_UUID:-}" ]]; then
+            secure_remove "$HOME/Library/MobileDevice/Provisioning Profiles/$IOS_PROFILE_UUID.mobileprovision"
+          fi

@@ -16,8 +16,8 @@ public sealed class ProcarePayloadParserTests
             {
               "id": "kid-1",
               "attributes": {
-                "first_name": "Avery",
-                "last_name": "Lee",
+                "first_name": "Sample",
+                "last_name": "Student",
                 "photo_url": "https://example.test/avatar.jpg"
               }
             }
@@ -29,8 +29,8 @@ public sealed class ProcarePayloadParserTests
 
         var student = Assert.Single(students);
         Assert.Equal("kid-1", student.Id);
-        Assert.Equal("Avery", student.FirstName);
-        Assert.Equal("Lee", student.LastName);
+        Assert.Equal("Sample", student.FirstName);
+        Assert.Equal("Student", student.LastName);
         Assert.Equal("https://example.test/avatar.jpg", student.PhotoUrl);
     }
 
@@ -43,10 +43,10 @@ public sealed class ProcarePayloadParserTests
             {
               "id": "kid-2",
               "attributes": {
-                "firstName": "Noah",
-                "lastName": "Lee",
+                "firstName": "Example",
+                "lastName": "Student",
                 "avatar": {
-                  "small": "https://example.test/noah-avatar.jpg"
+                  "small": "https://example.test/student-avatar.jpg"
                 }
               }
             }
@@ -58,7 +58,7 @@ public sealed class ProcarePayloadParserTests
 
         var student = Assert.Single(students);
         Assert.Equal("kid-2", student.Id);
-        Assert.Equal("https://example.test/noah-avatar.jpg", student.PhotoUrl);
+        Assert.Equal("https://example.test/student-avatar.jpg", student.PhotoUrl);
     }
 
     [Fact]

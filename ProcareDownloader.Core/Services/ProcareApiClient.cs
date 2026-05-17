@@ -68,7 +68,7 @@ public class ProcareApiClient : IProcareMediaClient
 
         if (!response.IsSuccessStatusCode)
         {
-            AppLog.Warn($"Student HTTP request failed. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 4000)}");
+            AppLog.Warn($"Student HTTP request failed. Status: {(int)response.StatusCode}.");
             response.EnsureSuccessStatusCode();
         }
 
@@ -164,7 +164,7 @@ public class ProcareApiClient : IProcareMediaClient
 
             if (!response.IsSuccessStatusCode)
             {
-                failures.Add($"Url: {url}. Status: {(int)response.StatusCode}. Body: {AppLog.Truncate(body, 1000)}");
+                failures.Add($"Status: {(int)response.StatusCode}.");
                 continue;
             }
 
@@ -402,7 +402,7 @@ public class ProcareApiClient : IProcareMediaClient
         }
 
         AppLog.Warn(
-            $"Payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}. Payload: {AppLog.Truncate(AppLog.SerializeNode(node), 4000)}");
+            $"Payload for {context} was not an array. Node type: {AppLog.DescribeNode(node)}.");
         return null;
     }
 

@@ -25,6 +25,36 @@ TestResults/
 # Logs and local diagnostics
 *.log
 
+# Local planning/design artifacts
+docs/
+stitch-screenshots/
+.codex/
+.agents/
+.claude/
+.cursor/
+
+# Local app data and generated media
+download-history.json
+settings.json
+WebView2Data/
+*.sqlite
+*.db
+
+# Secrets and signing assets
+.env
+.env.*
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+*.csr
+*.key
+*.pem
+*.keystore
+*.jks
+key.properties
+ExportOptions.plist
+
 # OS files
 Thumbs.db
 Desktop.ini

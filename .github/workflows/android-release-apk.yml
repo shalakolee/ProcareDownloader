@@ -248,3 +248,9 @@ jobs:
           else
             gh release create "$TAG" "$APK_OUTPUT_DIR"/* --title "$TITLE" --notes "$NOTES"
           fi
+
+      - name: Clean up Android signing files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$KEYSTORE_PATH" "$KEY_PROPERTIES_PATH"
