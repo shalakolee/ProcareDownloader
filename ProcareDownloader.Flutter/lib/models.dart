@@ -1,4 +1,4 @@
-enum AppStage { login, loadingStudents, selectStudent, gallery, downloading }
+enum AppStage { login, selectStudent, gallery, downloading }
 
 enum DownloadLayout { flat, student, yearMonth, studentYear, studentYearMonth }
 

@@ -38,7 +38,7 @@ class ProcareApi {
     _token = null;
   }
 
-  Future<List<Student>> getStudents() async {
+  Future<List<Student>?> getStudents() async {
     await _syncCredentialsFromBrowser();
 
     final browserStudents = await _getStudentsFromBrowser();
@@ -47,19 +47,19 @@ class ProcareApi {
     }
 
     if (!hasToken) {
-      return const [];
+      return null;
     }
 
-    final response = await _http.get(
-      Uri.parse('$_apiBaseUrl$_parentKidsPath'),
-      headers: _headers(),
-    );
+    final response = await _http
+        .get(Uri.parse('$_apiBaseUrl$_parentKidsPath'), headers: _headers())
+        .timeout(const Duration(seconds: 12));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('Student request failed (${response.statusCode}).');
     }
 
-    return parseStudents(jsonDecode(response.body));
+    final node = jsonDecode(response.body);
+    return _tryGetArray(node) == null ? null : parseStudents(node);
   }
 
   Future<List<Photo>> getPhotos(
@@ -232,6 +232,7 @@ class ProcareApi {
   }
 
   Future<List<Student>?> _getStudentsFromBrowser() async {
+    // The portal's request helper resets its session state on a 401.
     final node = await _browserJsonRunner?.call('''
 (async function() {
   const authPayload = (() => {
@@ -241,15 +242,6 @@ class ProcareApi {
       return null;
     }
   })();
-
-  if (window.req?.parentKids) {
-    try {
-      const result = await window.req.parentKids();
-      if (result && (Array.isArray(result.kids) || Array.isArray(result.data) || Object.keys(result).length > 0)) {
-        return result;
-      }
-    } catch {}
-  }
 
   const headers = { Accept: 'application/json' };
   if (authPayload?.accessToken) {

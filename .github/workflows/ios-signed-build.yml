@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       export_method:
-        description: "Xcode export method"
+        description: "Xcode export method, or unsigned for a compile check"
         required: true
         default: "app-store"
         type: choice
@@ -13,6 +13,7 @@ on:
           - ad-hoc
           - development
           - enterprise
+          - unsigned
       upload_testflight:
         description: "Upload the exported app-store IPA to TestFlight"
         required: true
@@ -31,8 +32,41 @@ permissions:
   contents: read
 
 jobs:
+  build-ios-unsigned:
+    name: Build unsigned iOS app
+    if: ${{ inputs.export_method == 'unsigned' }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ProcareDownloader.Flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.41.9"
+          cache: true
+      - name: Resolve dependencies and test
+        run: |
+          flutter pub get
+          flutter test --reporter compact
+      - name: Build unsigned iOS app
+        env:
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+        run: |
+          flutter build ios --release --no-codesign --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app build/ios/procare-ios-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: procare-downloader-ios-unsigned
+          path: ProcareDownloader.Flutter/build/ios/procare-ios-unsigned.zip
+          if-no-files-found: error
+
   build-ios:
     name: Build signed iOS IPA
+    if: ${{ inputs.export_method != 'unsigned' }}
     runs-on: macos-15
     timeout-minutes: 45
 

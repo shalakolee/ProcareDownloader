@@ -22,6 +22,11 @@ const _background = Color(0xFFF4F7FB);
 const _primary = Color(0xFF0F766E);
 const _primarySoft = Color(0xFFE6FFFA);
 const _blueSoft = Color(0xFFEAF2FF);
+const _portalOrigin = 'https://schools.procareconnect.com';
+const _loginPath = '/login';
+const _isLoginPageScript =
+    "(location.pathname === '$_loginPath' || location.pathname.startsWith('$_loginPath/'))";
+final _loginUri = Uri.parse('$_portalOrigin$_loginPath');
 
 class ProcareDownloaderApp extends StatelessWidget {
   const ProcareDownloaderApp({super.key});
@@ -72,7 +77,7 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
   var _expectedPhotoCount = 0;
   var _isRefreshingPhotos = false;
   var _isDownloading = false;
-  var _isContinuingBrowserSession = false;
+  var _isCheckingBrowserSession = false;
   var _isSigningOut = false;
   var _browserScriptRequestId = 0;
   var _downloadProgress = 0.0;
@@ -91,7 +96,7 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
     _configureWebView();
     _authTimer = Timer.periodic(
       const Duration(seconds: 2),
-      (_) => _captureTokenFromWebView(),
+      (_) => _checkBrowserSession(),
     );
   }
 
@@ -125,116 +130,85 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) async {
-            if (_stage == AppStage.login && !url.contains('/login')) {
-              setState(() {
-                _status = 'Session detected. Finishing sign-in...';
-                _subStatus =
-                    'Using the authenticated browser session to load your students.';
-              });
-            }
-            if (_stage == AppStage.login && url.contains('/login')) {
-              await _applyLoginPageCentering();
-            }
-            await _injectAuthHook();
-            await _captureTokenFromWebView();
-          },
+          onPageFinished: (_) => unawaited(_checkBrowserSession()),
         ),
       )
-      ..loadRequest(Uri.parse('https://schools.procareconnect.com/login'));
+      ..loadRequest(_loginUri);
 
     _webViewController = controller;
     _api.attachBrowser(_runBrowserJsonExpression);
   }
 
-  Future<void> _injectAuthHook() async {
-    try {
-      await _webViewController.runJavaScript(_authHookScript);
-    } catch (_) {
-      // Procare occasionally navigates through transient pages where injection is not possible.
-    }
-  }
-
-  Future<void> _captureTokenFromWebView() async {
-    if (_stage != AppStage.login || _isSigningOut) {
-      return;
-    }
-
-    try {
-      await _applyLoginPageCentering();
-      await _injectAuthHook();
-      final raw = await _webViewController.runJavaScriptReturningResult(
-        _captureTokenScript,
-      );
-      final token = _parseTokenResult(raw);
-      if (token == null) {
-        await _tryContinueFromBrowserSession();
-        return;
-      }
-
-      _api.setCredentials(token);
-      await _loadStudents();
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status = 'Waiting for Procare session...';
-        _subStatus =
-            'Stay on the Procare page. The app is watching for the authenticated API session.';
-      });
-    }
-  }
-
-  Future<void> _applyLoginPageCentering() async {
-    try {
-      await _webViewController.runJavaScript(_loginCenteringScript);
-    } catch (_) {
-      // The login page can still be navigating while Procare renders its form.
-    }
-  }
-
-  Future<void> _tryContinueFromBrowserSession() async {
-    if (_isContinuingBrowserSession ||
+  Future<void> _checkBrowserSession() async {
+    if (!mounted ||
         _stage != AppStage.login ||
-        _isSigningOut) {
+        _isSigningOut ||
+        _isCheckingBrowserSession) {
       return;
     }
 
-    _isContinuingBrowserSession = true;
+    _isCheckingBrowserSession = true;
     try {
+      final url = await _webViewController.currentUrl();
+      if (!mounted || url == null) {
+        return;
+      }
+      final page = Uri.tryParse(url);
+      if (page == null ||
+          !page.isScheme('https') ||
+          page.origin != _portalOrigin) {
+        return;
+      }
+      if (page.path == _loginPath || page.path.startsWith('$_loginPath/')) {
+        // The portal can sign in without reloading the document. Install the
+        // passive hook now so it can see the portal's first signed-in request.
+        await _webViewController.runJavaScript('''
+if (location.origin === '$_portalOrigin' && $_isLoginPageScript) {
+  try { $_authHookScript } catch {}
+  $_loginCenteringScript
+}
+''');
+        return;
+      }
+
+      _api.clearCredentials();
       final students = await _api.getStudents();
-      if (!mounted || _stage != AppStage.login || students.isEmpty) {
+      final currentUrl = await _webViewController.currentUrl();
+      if (!mounted || currentUrl != url || students == null) {
         return;
       }
 
       setState(() {
         _students = students;
         _stage = AppStage.selectStudent;
-        _status = 'Select a student.';
-        _subStatus = students.length == 1
-            ? 'One student found.'
-            : 'Choose whose photos to browse.';
+        _status = students.isEmpty ? 'No students found.' : 'Select a student.';
+        _subStatus = switch (students.length) {
+          0 => 'No students are linked to this Procare account.',
+          1 => 'One student found.',
+          _ => 'Choose whose photos to browse.',
+        };
       });
 
       if (students.length == 1) {
         await _selectStudent(students.first);
       }
     } catch (_) {
-      // The page can be logged in before Procare's request helpers are ready. The timer retries.
+      // Procare can still be navigating or establishing its session. The timer retries.
     } finally {
-      _isContinuingBrowserSession = false;
+      _isCheckingBrowserSession = false;
     }
   }
 
   Future<Object?> _runBrowserJsonExpression(String javaScriptExpression) async {
-    await _injectAuthHook();
-
     final resultKey = '__procareDownloaderAsync_${++_browserScriptRequestId}';
     final resultKeyJson = jsonEncode(resultKey);
     final launcher =
         '''
 (function() {
+  if (location.origin !== '$_portalOrigin' || $_isLoginPageScript) {
+    return false;
+  }
+  try { $_authHookScript } catch {}
   const resultKey = $resultKeyJson;
   try { sessionStorage.removeItem(resultKey); } catch {}
   Promise.resolve()
@@ -251,11 +225,16 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
         sessionStorage.setItem(resultKey, JSON.stringify({ ok: false, error: String(error && (error.stack || error.message) || error) }));
       } catch {}
     });
-  return resultKey;
+  return true;
 })();
 ''';
 
-    await _webViewController.runJavaScript(launcher);
+    final started = await _webViewController.runJavaScriptReturningResult(
+      launcher,
+    );
+    if ('$started' != 'true') {
+      return null;
+    }
 
     for (var attempt = 0; attempt < 60; attempt++) {
       await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -286,29 +265,6 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
     return const {'error': true, 'body': 'Browser request timed out.'};
   }
 
-  TokenInfo? _parseTokenResult(Object? raw) {
-    final text = _decodeJavaScriptStringResult(raw);
-    if (text == null || text.isEmpty || text == 'null') {
-      return null;
-    }
-
-    final node = jsonDecode(text);
-    if (node is! Map) {
-      return null;
-    }
-
-    final token = '${node['accessToken'] ?? ''}'.trim();
-    if (token.isEmpty) {
-      return null;
-    }
-
-    final orgId = '${node['organizationId'] ?? ''}'.trim();
-    return TokenInfo(
-      accessToken: token,
-      organizationId: orgId.isEmpty ? null : orgId,
-    );
-  }
-
   String? _decodeJavaScriptStringResult(Object? raw) {
     if (raw == null) {
       return null;
@@ -326,47 +282,6 @@ class _ProcareHomePageState extends State<ProcareHomePage> {
     }
 
     return text;
-  }
-
-  Future<void> _loadStudents() async {
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _stage = AppStage.loadingStudents;
-      _status = 'Loading students...';
-      _subStatus = 'Using your authenticated Procare session.';
-    });
-
-    try {
-      final students = await _api.getStudents();
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _students = students;
-        _stage = AppStage.selectStudent;
-        _status = 'Select a student.';
-        _subStatus = students.length == 1
-            ? 'One student found.'
-            : 'Choose whose photos to browse.';
-      });
-
-      if (students.length == 1) {
-        await _selectStudent(students.first);
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _stage = AppStage.login;
-        _status = 'Could not load students.';
-        _subStatus = '$error';
-      });
-    }
   }
 
   Future<void> _selectStudent(Student student) async {
@@ -678,8 +593,8 @@ try {
     }
 
     await _webViewController.loadRequest(
-      Uri.parse(
-        'https://schools.procareconnect.com/login?reload=${DateTime.now().millisecondsSinceEpoch}',
+      _loginUri.replace(
+        queryParameters: {'reload': '${DateTime.now().millisecondsSinceEpoch}'},
       ),
     );
 
@@ -1036,12 +951,8 @@ try {
   }
 
   Widget _buildBody() {
-    return switch (_stage) {
-      AppStage.login => WebViewWidget(controller: _webViewController),
-      AppStage.loadingStudents => _CenteredStatus(
-        title: _status,
-        subtitle: _subStatus,
-      ),
+    final content = switch (_stage) {
+      AppStage.login => null,
       AppStage.selectStudent => _StudentList(
         students: _students,
         subtitle: _subStatus,
@@ -1064,6 +975,17 @@ try {
         onOpenPhoto: _openPhotoViewer,
       ),
     };
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Visibility(
+          visible: _stage == AppStage.login,
+          maintainState: true,
+          child: WebViewWidget(controller: _webViewController),
+        ),
+        ?content,
+      ],
+    );
   }
 
   Future<void> _openPhotoViewer(PhotoItem item) async {
@@ -1442,9 +1364,9 @@ class _StudentList extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(18),
       children: [
-        const Text(
-          'Choose a student',
-          style: TextStyle(
+        Text(
+          students.isEmpty ? 'No students found' : 'Choose a student',
+          style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w800,
             color: _ink,
@@ -2155,55 +2077,6 @@ class _StudentPickerActionBar extends StatelessWidget {
         icon: const Icon(Icons.logout),
         label: const Text('Sign Out'),
         style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-      ),
-    );
-  }
-}
-
-class _CenteredStatus extends StatelessWidget {
-  const _CenteredStatus({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: _surface,
-                border: Border.all(color: _border),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: const Center(
-                child: CircularProgressIndicator(color: _primary),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: _ink,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: _muted),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -3085,79 +2958,5 @@ const _authHookScript = r'''
     return false;
   };
   return scanStore(sessionStorage) || scanStore(localStorage) || 'hooked';
-})();
-''';
-
-const _captureTokenScript = r'''
-(function() {
-  const key = '__procareDownloaderAuth';
-  const looksLikeJwt = (value) => typeof value === 'string' && /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/.test(value.trim());
-  const normalize = (value, depth = 0, allowOpaque = false) => {
-    if (depth > 6 || !value || typeof value !== 'string') return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith('Bearer ')) return { accessToken: trimmed.slice(7).trim() };
-    if (looksLikeJwt(trimmed)) return { accessToken: trimmed };
-    if (allowOpaque && trimmed.length >= 16) return { accessToken: trimmed };
-    try { return findAuth(JSON.parse(trimmed), depth + 1); } catch {}
-    return null;
-  };
-  const findAuth = (value, depth = 0) => {
-    if (depth > 6 || value == null) return null;
-    if (typeof value === 'string') return normalize(value, depth + 1);
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = findAuth(item, depth + 1);
-        if (found) return found;
-      }
-      return null;
-    }
-    if (typeof value === 'object') {
-      const organizationId = value.organization_id || value.organizationId || value.orgId;
-      const candidates = [
-        [value.access_token, true],
-        [value.accessToken, true],
-        [value.authToken, true],
-        [value.auth_token, true],
-        [value.token, false]
-      ];
-      for (const [candidate, allowOpaque] of candidates) {
-        const normalizedAccessToken = typeof candidate === 'string' ? normalize(candidate, depth + 1, allowOpaque) : null;
-        if (normalizedAccessToken?.accessToken) return { accessToken: normalizedAccessToken.accessToken, organizationId };
-      }
-      for (const nested of Object.values(value)) {
-        const found = findAuth(nested, depth + 1);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-  const readStore = (store) => {
-    try {
-      const captured = findAuth(store.getItem(key));
-      if (captured) return captured;
-    } catch {}
-    const directKeys = [
-      ['access_token', true],
-      ['accessToken', true],
-      ['authToken', true],
-      ['auth_token', true],
-      ['token', false]
-    ];
-    for (const [itemKey, allowOpaque] of directKeys) {
-      try {
-        const found = normalize(store.getItem(itemKey), 0, allowOpaque);
-        if (found) return found;
-      } catch {}
-    }
-    for (let i = 0; i < store.length; i++) {
-      try {
-        const found = normalize(store.getItem(store.key(i)));
-        if (found) return found;
-      } catch {}
-    }
-    return null;
-  };
-  return JSON.stringify(findAuth(window[key]) || readStore(localStorage) || readStore(sessionStorage) || null);
 })();
 ''';
